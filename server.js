@@ -9,21 +9,14 @@ dotenv.config();
 
 const app = express();
 
-/* =============================
-   MIDDLEWARE
-============================= */
 app.use(express.json());
-app.use(
-  cors({
-    origin: "*", // Change to your frontend domain in production
-  })
-);
+app.use(cors({ origin: "*" }));
 
 /* =============================
-   HEALTH CHECK ROUTE
+   HEALTH ROUTE
 ============================= */
 app.get("/", (req, res) => {
-  res.send("Backend is running successfully 🚀");
+  res.json({ status: "Backend running ✅" });
 });
 
 /* =============================
@@ -39,16 +32,16 @@ const razorpay = new Razorpay({
 ============================= */
 app.post("/api/create-order", async (req, res) => {
   try {
-    console.log("Incoming Body:", req.body);
+    console.log("Incoming body:", req.body);
 
-    const { amount } = req.body;
+    const amount = Number(req.body.amount);
 
-    if (!amount) {
-      return res.status(400).json({ error: "Amount is required" });
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid amount value" });
     }
 
     const order = await razorpay.orders.create({
-      amount: Number(amount) * 100, // Convert ₹ to paise
+      amount: Math.round(amount * 100), // convert to paise
       currency: "INR",
       receipt: "receipt_" + Date.now(),
     });
@@ -77,21 +70,15 @@ app.post("/api/verify-payment", (req, res) => {
       .digest("hex");
 
     if (generated_signature === razorpay_signature) {
-      res.json({ success: true, message: "Payment verified successfully" });
+      res.json({ success: true });
     } else {
-      res.status(400).json({ success: false, message: "Invalid signature" });
+      res.status(400).json({ success: false });
     }
   } catch (error) {
-    console.error("Verification Error:", error);
-    res.status(500).json({ error: "Payment verification failed" });
+    console.error("Verify Error:", error);
+    res.status(500).json({ error: "Verification failed" });
   }
 });
 
-/* =============================
-   START SERVER
-============================= */
 const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
