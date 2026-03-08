@@ -47,28 +47,47 @@ connectDB();
 ============================= */
 
 const orderSchema = new mongoose.Schema({
-  user: String,
+  userId: {
+    type: String,
+    required: true
+  },
+
+  user: {
+    type: String,
+    required: true
+  },
+
   phone: String,
+
+  deliveryAddress: {
+    street: String,
+    state: String,
+    postcode: String,
+    country: String
+  },
+
   total: Number,
   paymentMethod: String,
   paymentStatus: String,
+
   status: {
     type: String,
-    default: "Processing",
+    default: "Processing"
   },
+
   items: [
     {
       title: String,
       price: Number,
-      quantity: Number,
-    },
+      quantity: Number
+    }
   ],
+
   createdAt: {
     type: Date,
-    default: Date.now,
-  },
+    default: Date.now
+  }
 });
-
 const Order = mongoose.model("Order", orderSchema);
 
 /* =============================
@@ -171,8 +190,9 @@ app.post("/api/save-order", async (req, res) => {
 });
 
 /* =============================
-   GET ALL ORDERS
+   GET ALL ORDERS (ADMIN)
 ============================= */
+
 app.get("/api/orders", async (req, res) => {
   try {
 
@@ -182,10 +202,30 @@ app.get("/api/orders", async (req, res) => {
 
   } catch (error) {
 
-    console.error("Fetch Orders Error:", error);
-
     res.status(500).json({
       error: error.message
+    });
+
+  }
+});
+
+/* =============================
+   GET ORDERS FOR SPECIFIC USER
+============================= */
+
+app.get("/api/orders/:userId", async (req, res) => {
+  try {
+
+    const orders = await Order.find({
+      userId: req.params.userId
+    }).sort({ createdAt: -1 });
+
+    res.json(orders);
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Failed to fetch user orders"
     });
 
   }
