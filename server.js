@@ -4,6 +4,7 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import cors from "cors";
+import mongoose from "mongoose";
 
 dotenv.config();
 
@@ -13,8 +14,47 @@ app.use(express.json());
 app.use(cors({ origin: "*" }));
 
 /* =============================
+   MONGODB CONNECTION
+============================= */
+
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch((err) => console.log("MongoDB Connection Error:", err));
+
+/* =============================
+   ORDER SCHEMA
+============================= */
+
+const orderSchema = new mongoose.Schema({
+  user: String,
+  phone: String,
+  total: Number,
+  paymentMethod: String,
+  paymentStatus: String,
+  status: {
+    type: String,
+    default: "Processing",
+  },
+  items: [
+    {
+      title: String,
+      price: Number,
+      quantity: Number,
+    },
+  ],
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+const Order = mongoose.model("Order", orderSchema);
+
+/* =============================
    HEALTH ROUTE
 ============================= */
+
 app.get("/", (req, res) => {
   res.json({ status: "Backend running ✅" });
 });
@@ -22,18 +62,18 @@ app.get("/", (req, res) => {
 /* =============================
    RAZORPAY INSTANCE
 ============================= */
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_SECRET,
 });
 
 /* =============================
-   CREATE ORDER
+   CREATE RAZORPAY ORDER
 ============================= */
+
 app.post("/api/create-order", async (req, res) => {
   try {
-    console.log("Incoming body:", req.body);
-
     const amount = Number(req.body.amount);
 
     if (!amount || isNaN(amount) || amount <= 0) {
@@ -41,7 +81,7 @@ app.post("/api/create-order", async (req, res) => {
     }
 
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // convert to paise
+      amount: Math.round(amount * 100),
       currency: "INR",
       receipt: "receipt_" + Date.now(),
     });
@@ -56,6 +96,7 @@ app.post("/api/create-order", async (req, res) => {
 /* =============================
    VERIFY PAYMENT
 ============================= */
+
 app.post("/api/verify-payment", (req, res) => {
   try {
     const {
@@ -80,5 +121,59 @@ app.post("/api/verify-payment", (req, res) => {
   }
 });
 
+/* =============================
+   SAVE ORDER IN MONGODB
+============================= */
+
+app.post("/api/save-order", async (req, res) => {
+  try {
+
+    const order = new Order(req.body);
+
+    await order.save();
+
+    res.json({
+      success: true,
+      message: "Order saved to MongoDB",
+      order,
+    });
+
+  } catch (error) {
+
+    console.error("Save Order Error:", error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to save order",
+    });
+
+  }
+});
+
+/* =============================
+   GET ALL ORDERS
+============================= */
+
+app.get("/api/orders", async (req, res) => {
+  try {
+
+    const orders = await Order.find().sort({ createdAt: -1 });
+
+    res.json(orders);
+
+  } catch (error) {
+
+    res.status(500).json({ error: "Failed to fetch orders" });
+
+  }
+});
+
+/* =============================
+   SERVER START
+============================= */
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+app.listen(PORT, () =>
+  console.log(`Server running on port ${PORT}`)
+);
