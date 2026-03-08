@@ -17,11 +17,25 @@ app.use(cors({ origin: "*" }));
    MONGODB CONNECTION
 ============================= */
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected ✅"))
-  .catch((err) => console.log("MongoDB Connection Error:", err));
+/* =============================
+   MONGODB CONNECTION
+============================= */
 
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+
+    console.log("MongoDB Connected ✅");
+
+  } catch (error) {
+
+    console.error("MongoDB Connection Error:", error);
+
+    process.exit(1);
+  }
+};
+
+connectDB();
 /* =============================
    ORDER SCHEMA
 ============================= */
@@ -153,7 +167,6 @@ app.post("/api/save-order", async (req, res) => {
 /* =============================
    GET ALL ORDERS
 ============================= */
-
 app.get("/api/orders", async (req, res) => {
   try {
 
@@ -163,11 +176,14 @@ app.get("/api/orders", async (req, res) => {
 
   } catch (error) {
 
-    res.status(500).json({ error: "Failed to fetch orders" });
+    console.error("Fetch Orders Error:", error);
+
+    res.status(500).json({
+      error: error.message
+    });
 
   }
 });
-
 /* =============================
    SERVER START
 ============================= */
