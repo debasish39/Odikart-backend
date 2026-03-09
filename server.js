@@ -523,6 +523,35 @@ app.delete("/api/cart/remove", async (req, res) => {
   }
 });
 /* =============================
+   CLEAR USER CART
+============================= */
+
+app.delete("/api/cart/clear/:userId", async (req, res) => {
+  try {
+
+    const { userId } = req.params;
+
+    await Cart.findOneAndUpdate(
+      { userId },
+      { items: [] }
+    );
+
+    res.json({
+      success: true,
+      message: "Cart cleared"
+    });
+
+  } catch (error) {
+
+    console.error("Clear Cart Error:", error);
+
+    res.status(500).json({
+      error: "Failed to clear cart"
+    });
+
+  }
+});
+/* =============================
    SAVE / UPDATE WISHLIST
 ============================= */
 
@@ -589,6 +618,44 @@ app.get("/api/wishlist/:userId", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to fetch wishlist"
+    });
+
+  }
+});
+/* =============================
+   CLEAR USER WISHLIST
+============================= */
+
+app.delete("/api/wishlist/clear/:userId", async (req, res) => {
+  try {
+
+    const { userId } = req.params;
+
+    const wishlist = await Wishlist.findOne({ userId });
+
+    if (!wishlist) {
+      return res.status(404).json({
+        error: "Wishlist not found"
+      });
+    }
+
+    wishlist.items = [];
+    wishlist.updatedAt = new Date();
+
+    await wishlist.save();
+
+    res.json({
+      success: true,
+      message: "Wishlist cleared",
+      wishlist
+    });
+
+  } catch (error) {
+
+    console.error("Clear Wishlist Error:", error);
+
+    res.status(500).json({
+      error: "Failed to clear wishlist"
     });
 
   }
