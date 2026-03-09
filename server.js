@@ -89,7 +89,62 @@ const orderSchema = new mongoose.Schema({
   }
 });
 const Order = mongoose.model("Order", orderSchema);
+/* =============================
+   CART SCHEMA
+============================= */
 
+const cartSchema = new mongoose.Schema({
+  userId: {
+    type: String,
+    required: true
+  },
+
+  items: [
+    {
+      productId: String,
+      title: String,
+      price: Number,
+      image: String,
+      quantity: {
+        type: Number,
+        default: 1
+      }
+    }
+  ],
+
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const Cart = mongoose.model("Cart", cartSchema);
+/* =============================
+   WISHLIST SCHEMA
+============================= */
+
+const wishlistSchema = new mongoose.Schema({
+  userId: {
+    type: String,
+    required: true
+  },
+
+  items: [
+    {
+      productId: String,
+      title: String,
+      price: Number,
+      image: String
+    }
+  ],
+
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const Wishlist = mongoose.model("Wishlist", wishlistSchema);
 /* =============================
    HEALTH ROUTE
 ============================= */
@@ -226,6 +281,148 @@ app.get("/api/orders/:userId", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to fetch user orders"
+    });
+
+  }
+});
+/* =============================
+   SAVE / UPDATE CART
+============================= */
+
+app.post("/api/cart", async (req, res) => {
+  try {
+
+    const { userId, items } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: "User ID required" });
+    }
+
+    let cart = await Cart.findOne({ userId });
+
+    if (cart) {
+      cart.items = items;
+      cart.updatedAt = new Date();
+      await cart.save();
+    } else {
+      cart = new Cart({
+        userId,
+        items
+      });
+      await cart.save();
+    }
+
+    res.json({
+      success: true,
+      message: "Cart saved",
+      cart
+    });
+
+  } catch (error) {
+
+    console.error("Cart Save Error:", error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to save cart"
+    });
+
+  }
+});
+/* =============================
+   GET USER CART
+============================= */
+
+app.get("/api/cart/:userId", async (req, res) => {
+  try {
+
+    const cart = await Cart.findOne({
+      userId: req.params.userId
+    });
+
+    if (!cart) {
+      return res.json({ items: [] });
+    }
+
+    res.json(cart);
+
+  } catch (error) {
+
+    console.error("Fetch Cart Error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch cart"
+    });
+
+  }
+});
+/* =============================
+   SAVE / UPDATE WISHLIST
+============================= */
+
+app.post("/api/wishlist", async (req, res) => {
+  try {
+
+    const { userId, items } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: "User ID required" });
+    }
+
+    let wishlist = await Wishlist.findOne({ userId });
+
+    if (wishlist) {
+      wishlist.items = items;
+      wishlist.updatedAt = new Date();
+      await wishlist.save();
+    } else {
+      wishlist = new Wishlist({
+        userId,
+        items
+      });
+      await wishlist.save();
+    }
+
+    res.json({
+      success: true,
+      message: "Wishlist saved",
+      wishlist
+    });
+
+  } catch (error) {
+
+    console.error("Wishlist Save Error:", error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to save wishlist"
+    });
+
+  }
+});
+/* =============================
+   GET USER WISHLIST
+============================= */
+
+app.get("/api/wishlist/:userId", async (req, res) => {
+  try {
+
+    const wishlist = await Wishlist.findOne({
+      userId: req.params.userId
+    });
+
+    if (!wishlist) {
+      return res.json({ items: [] });
+    }
+
+    res.json(wishlist);
+
+  } catch (error) {
+
+    console.error("Fetch Wishlist Error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch wishlist"
     });
 
   }
