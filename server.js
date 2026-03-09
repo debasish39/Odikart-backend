@@ -357,6 +357,172 @@ app.get("/api/cart/:userId", async (req, res) => {
   }
 });
 /* =============================
+   ADD ITEM TO CART
+============================= */
+
+app.post("/api/cart/add", async (req, res) => {
+  try {
+
+    const { userId, product } = req.body;
+
+    let cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      cart = new Cart({
+        userId,
+        items: [{ ...product, quantity: 1 }]
+      });
+
+    } else {
+
+      const itemIndex = cart.items.findIndex(
+        (item) => item.productId === product.productId
+      );
+
+      if (itemIndex > -1) {
+        cart.items[itemIndex].quantity += 1;
+      } else {
+        cart.items.push({ ...product, quantity: 1 });
+      }
+
+    }
+
+    await cart.save();
+
+    res.json({
+      success: true,
+      cart
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Failed to add item"
+    });
+
+  }
+});
+/* =============================
+   INCREASE QUANTITY
+============================= */
+
+app.put("/api/cart/increase", async (req, res) => {
+  try {
+
+    const { userId, productId } = req.body;
+
+    const cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      return res.status(404).json({ error: "Cart not found" });
+    }
+
+    const item = cart.items.find(
+      (item) => item.productId === productId
+    );
+
+    if (!item) {
+      return res.status(404).json({ error: "Item not found" });
+    }
+
+    item.quantity += 1;
+
+    await cart.save();
+
+    res.json({
+      success: true,
+      cart
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Increase quantity failed"
+    });
+
+  }
+});
+/* =============================
+   DECREASE QUANTITY
+============================= */
+
+app.put("/api/cart/decrease", async (req, res) => {
+  try {
+
+    const { userId, productId } = req.body;
+
+    const cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      return res.status(404).json({ error: "Cart not found" });
+    }
+
+    const item = cart.items.find(
+      (item) => item.productId === productId
+    );
+
+    if (!item) {
+      return res.status(404).json({ error: "Item not found" });
+    }
+
+    item.quantity -= 1;
+
+    if (item.quantity <= 0) {
+      cart.items = cart.items.filter(
+        (item) => item.productId !== productId
+      );
+    }
+
+    await cart.save();
+
+    res.json({
+      success: true,
+      cart
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Decrease quantity failed"
+    });
+
+  }
+});
+/* =============================
+   REMOVE ITEM FROM CART
+============================= */
+
+app.delete("/api/cart/remove", async (req, res) => {
+  try {
+
+    const { userId, productId } = req.body;
+
+    const cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      return res.status(404).json({ error: "Cart not found" });
+    }
+
+    cart.items = cart.items.filter(
+      (item) => item.productId !== productId
+    );
+
+    await cart.save();
+
+    res.json({
+      success: true,
+      cart
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: "Remove item failed"
+    });
+
+  }
+});
+/* =============================
    SAVE / UPDATE WISHLIST
 ============================= */
 
@@ -423,6 +589,54 @@ app.get("/api/wishlist/:userId", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to fetch wishlist"
+    });
+
+  }
+});
+/* =============================
+   REMOVE ITEM FROM WISHLIST
+============================= */
+
+app.delete("/api/wishlist/remove", async (req, res) => {
+  try {
+
+    const { userId, productId } = req.body;
+
+    if (!userId || !productId) {
+      return res.status(400).json({
+        error: "userId and productId required"
+      });
+    }
+
+    const wishlist = await Wishlist.findOne({ userId });
+
+    if (!wishlist) {
+      return res.status(404).json({
+        error: "Wishlist not found"
+      });
+    }
+
+    // Remove product
+    wishlist.items = wishlist.items.filter(
+      (item) => item.productId !== productId
+    );
+
+    wishlist.updatedAt = new Date();
+
+    await wishlist.save();
+
+    res.json({
+      success: true,
+      message: "Item removed from wishlist",
+      wishlist
+    });
+
+  } catch (error) {
+
+    console.error("Remove Wishlist Error:", error);
+
+    res.status(500).json({
+      error: "Failed to remove item"
     });
 
   }
