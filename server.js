@@ -182,6 +182,18 @@ app.get("/api/users", async (req, res) => {
         message: "No users found",
       });
     }
+   const formatIST = (date) => {
+      if (!date) return "No login yet";
+
+      return new Date(date).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    };
 
  const formattedUsers = users.map(user => ({
   id: user.id,
@@ -192,10 +204,11 @@ app.get("/api/users", async (req, res) => {
   name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
 
   image: user.imageUrl,
-  createdAt: new Date(user.createdAt).toLocaleString("en-IN"),
-  lastSignIn: user.lastSignInAt
-    ? new Date(user.lastSignInAt).toLocaleString("en-IN")
-    : "Never"
+  // ✅ IST formatted
+  createdAt: formatIST(user.createdAt),
+
+  // ✅ IST formatted (with fallback)
+  lastSignIn: formatIST(user.lastSignInAt),
 }));
 
     // ✅ Step 5: Send response
