@@ -1,8 +1,11 @@
-const mongoose = require("mongoose");
-
 const orderSchema = new mongoose.Schema({
 
   user: {
+    type: String,
+    required: true
+  },
+
+  email: {            // ✅ ADD THIS
     type: String,
     required: true
   },
@@ -17,13 +20,8 @@ const orderSchema = new mongoose.Schema({
     required: true
   },
 
-  paymentMethod: {
-    type: String
-  },
-
-  paymentStatus: {
-    type: String
-  },
+  paymentMethod: String,
+  paymentStatus: String,
 
   status: {
     type: String,
@@ -44,5 +42,3 @@ const orderSchema = new mongoose.Schema({
   }
 
 });
-
-module.exports = mongoose.model("Order", orderSchema);

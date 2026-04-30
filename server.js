@@ -7,6 +7,7 @@ import cors from "cors";
 import mongoose from "mongoose";
 import multer from "multer";
 import { Clerk } from "@clerk/clerk-sdk-node";
+import { sendEmail } from "./utils/sendEmail.js";
 
 dotenv.config();
 
@@ -59,8 +60,15 @@ const orderSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-
-  phone: String,
+  email: {
+    // ✅ ADDED THIS
+    type: String,
+    required: true,
+  },
+  phone: {
+    type: String,
+    required: true,
+  },
 
   deliveryAddress: {
     street: String,
@@ -90,6 +98,14 @@ const orderSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  cancelled: {
+  type: Boolean,
+  default: false,
+},
+cancelledAt: {
+  type: Date,
+  default: null,
+},
 });
 const Order = mongoose.model("Order", orderSchema);
 /* =============================
@@ -182,7 +198,7 @@ app.get("/api/users", async (req, res) => {
         message: "No users found",
       });
     }
-   const formatIST = (date) => {
+    const formatIST = (date) => {
       if (!date) return "No login yet";
 
       return new Date(date).toLocaleString("en-IN", {
@@ -195,21 +211,21 @@ app.get("/api/users", async (req, res) => {
       });
     };
 
- const formattedUsers = users.map(user => ({
-  id: user.id,
+    const formattedUsers = users.map((user) => ({
+      id: user.id,
 
-  // 🔥 ALL emails
-  emails: user.emailAddresses.map(e => e.emailAddress),
+      // 🔥 ALL emails
+      emails: user.emailAddresses.map((e) => e.emailAddress),
 
-  name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
 
-  image: user.imageUrl,
-  // ✅ IST formatted
-  createdAt: formatIST(user.createdAt),
+      image: user.imageUrl,
+      // ✅ IST formatted
+      createdAt: formatIST(user.createdAt),
 
-  // ✅ IST formatted (with fallback)
-  lastSignIn: formatIST(user.lastSignInAt),
-}));
+      // ✅ IST formatted (with fallback)
+      lastSignIn: formatIST(user.lastSignInAt),
+    }));
 
     // ✅ Step 5: Send response
     res.json({
@@ -267,28 +283,28 @@ app.put("/api/users/:id/password", adminGuard, async (req, res) => {
       message: "Password updated",
       userId: updated.id,
     });
-  }catch (error) {
-  console.error("ERROR DETAILS:", error.errors);
+  } catch (error) {
+    console.error("ERROR DETAILS:", error.errors);
 
-  if (error.errors?.[0]?.code === "form_identifier_exists") {
-    return res.status(400).json({
+    if (error.errors?.[0]?.code === "form_identifier_exists") {
+      return res.status(400).json({
+        success: false,
+        error: "Email already exists",
+      });
+    }
+
+    if (error.errors?.[0]?.code === "form_verification_needed") {
+      return res.status(400).json({
+        success: false,
+        error: "Email must be verified before setting as primary",
+      });
+    }
+
+    res.status(500).json({
       success: false,
-      error: "Email already exists"
+      error: error.message,
     });
   }
-
-  if (error.errors?.[0]?.code === "form_verification_needed") {
-    return res.status(400).json({
-      success: false,
-      error: "Email must be verified before setting as primary"
-    });
-  }
-
-  res.status(500).json({
-    success: false,
-    error: error.message
-  });
-}
 });
 // app.put("/api/users/:id/email", adminGuard, async (req, res) => {
 //   try {
@@ -431,9 +447,219 @@ app.post("/api/save-order", async (req, res) => {
 
     await order.save();
 
+    // ✅ use order (NOT req.body)
+   await sendEmail(
+  order.email,
+  "🛒 Order Confirmed – EShop",
+  `
+  <div style="margin:0;padding:0;background:#f4f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    
+    <div style="max-width:620px;margin:30px auto;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.08);">
+      
+      <!-- HEADER -->
+      <div style="background:linear-gradient(135deg,#6366f1,#4f46e5);padding:25px;text-align:center;color:white;">
+        <h1 style="margin:0;font-size:22px;">🛍️ EShop</h1>
+        <p style="margin-top:6px;font-size:13px;opacity:0.9;">
+          Your order has been placed successfully 🎉
+        </p>
+      </div>
+
+      <!-- STATUS -->
+      <div style="text-align:center;padding:16px;">
+        <span style="
+          background:#ecfeff;
+          color:#0891b2;
+          padding:6px 14px;
+          border-radius:50px;
+          font-size:12px;
+          font-weight:600;
+        ">
+          📦 ${order.status}
+        </span>
+      </div>
+
+      <!-- BODY -->
+      <div style="padding:0 25px 25px;">
+
+        <h2 style="color:#111;font-size:18px;">Hi ${order.user},</h2>
+
+        <!-- ORDER SUMMARY -->
+        <div style="
+          background:#f9fafb;
+          border-radius:10px;
+          padding:16px;
+          margin-top:20px;
+          border:1px solid #e5e7eb;
+        ">
+          <table style="width:100%;font-size:14px;color:#333;">
+            
+            <tr>
+              <td><b>🆔 Order ID</b></td>
+              <td style="text-align:right;">
+                <span style="
+                  background:#eef2ff;
+                  color:#4338ca;
+                  padding:5px 10px;
+                  border-radius:6px;
+                  font-family:monospace;
+                  font-weight:bold;
+                ">
+                  ${order._id}
+                </span>
+              </td>
+            </tr>
+
+            <tr>
+              <td>📧 Email</td>
+              <td style="text-align:right;">${order.email}</td>
+            </tr>
+
+            <tr>
+              <td>📞 Phone</td>
+              <td style="text-align:right;">${order.phone}</td>
+            </tr>
+
+            <tr>
+              <td>💰 Total</td>
+              <td style="text-align:right;color:#16a34a;font-weight:bold;">
+                ₹${order.total}
+              </td>
+            </tr>
+
+            <tr>
+              <td>💳 Payment</td>
+              <td style="text-align:right;">
+                ${order.paymentMethod} (${order.paymentStatus})
+              </td>
+            </tr>
+
+            <tr>
+              <td>📅 Order Date</td>
+              <td style="text-align:right;">
+                ${new Date(order.createdAt).toLocaleString()}
+              </td>
+            </tr>
+
+          </table>
+        </div>
+
+        <!-- ITEMS -->
+        <div style="margin-top:25px;">
+          <h3 style="font-size:16px;color:#111;">🛒 Order Items</h3>
+
+          <div style="
+            margin-top:10px;
+            border:1px solid #e5e7eb;
+            border-radius:10px;
+            overflow:hidden;
+            background:#fafafa;
+          ">
+
+            ${
+              order.items?.length
+                ? order.items.map((item, index) => `
+                  <div style="
+                    display:flex;
+                    justify-content:space-between;
+                    align-items:center;
+                    padding:12px 15px;
+                    border-bottom:${index !== order.items.length - 1 ? "1px solid #eee" : "none"};
+                    font-size:14px;
+                  ">
+                    
+                    <div>
+                      <div style="font-weight:600;color:#111;">
+                        🛍 ${item.title}
+                      </div>
+                      <div style="font-size:12px;color:#777;">
+                        Qty: ${item.quantity}
+                      </div>
+                    </div>
+
+                    <div style="font-weight:bold;color:#16a34a;">
+                      ₹${item.price * item.quantity}
+                    </div>
+
+                  </div>
+                `).join("")
+                : `<div style="padding:12px;color:#777;">No items found</div>`
+            }
+
+            <!-- TOTAL -->
+            <div style="
+              display:flex;
+              justify-content:space-between;
+              padding:12px 15px;
+              font-weight:bold;
+              background:#f1f5f9;
+              border-top:1px solid #ddd;
+            ">
+              <span>Total</span>
+              <span>₹${order.total}</span>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ADDRESS -->
+        <div style="margin-top:25px;">
+          <h3 style="font-size:16px;color:#111;">📍 Delivery Address</h3>
+
+          <div style="
+            background:#f8fafc;
+            border:1px solid #e5e7eb;
+            border-radius:10px;
+            padding:12px;
+            margin-top:8px;
+            font-size:14px;
+            color:#555;
+          ">
+            ${order.deliveryAddress?.street || ""}<br/>
+            ${order.deliveryAddress?.state || ""} - ${order.deliveryAddress?.postcode || ""}<br/>
+            ${order.deliveryAddress?.country || ""}
+          </div>
+        </div>
+
+        <!-- CTA -->
+        <div style="text-align:center;margin:30px 0;">
+          <a href="https://eshop.debasish.xyz/track-order/${order._id}"
+             style="
+              background:#6366f1;
+              color:white;
+              padding:12px 24px;
+              text-decoration:none;
+              border-radius:8px;
+              font-weight:600;
+              display:inline-block;
+              box-shadow:0 6px 18px rgba(99,102,241,0.3);
+             ">
+            📦 Track Your Order
+          </a>
+        </div>
+
+        <p style="font-size:13px;color:#777;text-align:center;">
+          We’ll notify you when your order ships 🚚
+        </p>
+
+        <p style="text-align:center;margin-top:10px;">
+          ❤️ Thank you for choosing <b>EShop</b>
+        </p>
+
+      </div>
+
+      <!-- FOOTER -->
+      <div style="background:#f3f4f6;padding:12px;text-align:center;font-size:12px;color:#888;">
+        © ${new Date().getFullYear()} EShop. All rights reserved.
+      </div>
+
+    </div>
+
+  </div>
+  `
+);
     res.json({
       success: true,
-      message: "Order saved to MongoDB",
+      message: "Order saved & email sent",
       order,
     });
   } catch (error) {
@@ -445,7 +671,6 @@ app.post("/api/save-order", async (req, res) => {
     });
   }
 });
-
 /* =============================
    GET ALL ORDERS (ADMIN)
 ============================= */
@@ -841,6 +1066,225 @@ app.delete("/api/wishlist/remove", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to remove item",
+    });
+  }
+});
+
+// Track order by ID
+app.get("/api/order/:id", async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      order,
+    });
+  } catch (error) {
+    console.error("Track Order Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// Cancel order by ID
+app.put("/api/order/cancel/:id", async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    // ⛔ Already cancelled
+    if (order.cancelled) {
+      return res.status(400).json({
+        success: false,
+        message: "Order already cancelled",
+      });
+    }
+
+    // ⏱️ Check 7 days rule
+    const now = new Date();
+    const orderDate = new Date(order.createdAt);
+
+    const diffDays =
+      (now - orderDate) / (1000 * 60 * 60 * 24);
+
+    if (diffDays > 7) {
+      return res.status(400).json({
+        success: false,
+        message: "Cancellation period expired (7 days)",
+      });
+    }
+
+    // ✅ Cancel order
+    order.cancelled = true;
+    order.cancelledAt = new Date();
+    order.status = "Cancelled";
+
+    await order.save();
+
+    // 📧 SEND EMAIL AFTER CANCEL
+  await sendEmail(
+  order.email,
+  "❌ Order Cancelled – EShop",
+  `
+  <div style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
+    
+    <div style="max-width:600px;margin:30px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,0.1);">
+      
+      <!-- HEADER -->
+      <div style="background:linear-gradient(135deg,#ef4444,#dc2626);padding:20px;text-align:center;color:white;">
+        <h1 style="margin:0;">❌ Order Cancelled</h1>
+        <p style="margin-top:5px;font-size:13px;">
+          Your order has been cancelled successfully
+        </p>
+      </div>
+
+      <!-- BODY -->
+      <div style="padding:20px;">
+
+        <h2 style="color:#111;">Hi ${order.user},</h2>
+
+        <p style="color:#555;">
+          Your order has been successfully cancelled.
+        </p>
+
+        ${
+          order.paymentStatus === "Paid"
+            ? `<p style="color:#16a34a;font-size:14px;">
+                 💰 Refund will be processed within 5-7 business days.
+               </p>`
+            : ""
+        }
+
+        <!-- DETAILS -->
+        <div style="
+          background:#f9fafb;
+          border-radius:10px;
+          padding:15px;
+          margin-top:15px;
+          border:1px solid #eee;
+        ">
+          <p><b>🆔 Order ID:</b> ${order._id}</p>
+          <p><b>💰 Amount:</b> ₹${order.total}</p>
+          <p><b>💳 Payment:</b> ${order.paymentMethod} (${order.paymentStatus})</p>
+          <p><b>📅 Cancelled At:</b> ${new Date(order.cancelledAt).toLocaleString()}</p>
+        </div>
+
+        <!-- ITEMS -->
+        <div style="margin-top:25px;">
+          <h3 style="font-size:16px;color:#111;">🛒 Cancelled Items</h3>
+
+          <div style="
+            margin-top:10px;
+            border:1px solid #e5e7eb;
+            border-radius:10px;
+            overflow:hidden;
+            background:#fafafa;
+          ">
+
+            ${
+              order.items?.length
+                ? order.items.map(item => `
+                  <div style="
+                    display:flex;
+                    justify-content:space-between;
+                    align-items:center;
+                    padding:12px 15px;
+                    border-bottom:1px solid #eee;
+                    font-size:14px;
+                  ">
+                    
+                    <div>
+                      <div style="font-weight:600;color:#111;">
+                        ${item.title}
+                      </div>
+                      <div style="font-size:12px;color:#777;">
+                        Qty: ${item.quantity}
+                      </div>
+                    </div>
+
+                    <div style="font-weight:bold;color:#ef4444;">
+                      ₹${item.price * item.quantity}
+                    </div>
+
+                  </div>
+                `).join("")
+                : `<p style="padding:10px;color:#777;">No items found</p>`
+            }
+
+          </div>
+
+          <!-- TOTAL -->
+          <div style="text-align:right;padding:10px 5px;font-weight:bold;">
+            Total: ₹${order.total}
+          </div>
+        </div>
+
+        <!-- CTA -->
+        <div style="text-align:center;margin:30px 0;">
+          <a href="https://eshop.debasish.xyz/track-order"
+             style="
+              background:#6366f1;
+              color:white;
+              padding:12px 24px;
+              text-decoration:none;
+              border-radius:8px;
+              font-weight:600;
+              display:inline-block;
+              box-shadow:0 6px 18px rgba(99,102,241,0.3);
+             ">
+            🔍 Track Orders
+          </a>
+        </div>
+
+        <p style="margin-top:20px;color:#777;font-size:13px;text-align:center;">
+          If this was not you, contact support immediately.
+        </p>
+
+        <p style="margin-top:15px;text-align:center;">
+          — <b>EShop Team</b>
+        </p>
+
+      </div>
+
+      <!-- FOOTER -->
+      <div style="background:#f3f4f6;padding:12px;text-align:center;font-size:12px;color:#888;">
+        © ${new Date().getFullYear()} EShop. All rights reserved.
+      </div>
+
+    </div>
+
+  </div>
+  `
+);
+    // ✅ RESPONSE
+    res.json({
+      success: true,
+      message: "Order cancelled successfully & email sent",
+      order,
+    });
+
+  } catch (error) {
+    console.error("Cancel Order Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server error",
     });
   }
 });
