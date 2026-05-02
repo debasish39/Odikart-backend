@@ -15,7 +15,7 @@ export const sendEmail = async (to, subject, html) => {
 
     const msg = {
       to,
-      from: "djproject963@gmail.com",
+      from: "eshopcustomerinfo@gmail.com",
       subject,
       html,
     };
