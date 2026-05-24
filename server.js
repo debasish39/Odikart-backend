@@ -467,7 +467,7 @@ app.post("/api/save-order", async (req, res) => {
 
   <!-- LOGO -->
   <img
-    src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779616569/image_wl0q3c.png"
+    src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779617751/web-app-manifest-512x512_szlsma.png"
     alt="EShop Logo"
     width="90"
     style="
@@ -1204,7 +1204,7 @@ await sendEmail(
 
         <!-- LOGO -->
         <img
-          src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779616569/image_wl0q3c.png"
+          src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779617751/web-app-manifest-512x512_szlsma.png"
           alt="EShop Logo"
           width="90"
           style="
