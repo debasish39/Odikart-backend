@@ -657,7 +657,7 @@ app.post("/api/save-order", async (req, res) => {
 
         <!-- CTA -->
         <div style="text-align:center;margin:30px 0;">
-          <a href="https://eshop.debasish.xyz/track-order/${order._id}"
+          <a href="https://eshop.debasish.xyz/track-order"
              style="
               background:#6366f1;
               color:white;
