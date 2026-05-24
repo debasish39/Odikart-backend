@@ -16,6 +16,7 @@
     "mongoose": "^9.2.4",
     "multer": "^2.1.1",
     "nodemon": "^3.1.14",
-    "razorpay": "^2.9.2"
+    "razorpay": "^2.9.2",
+    "resend": "^6.12.3"
   }
 }
