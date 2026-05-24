@@ -457,12 +457,47 @@ app.post("/api/save-order", async (req, res) => {
     <div style="max-width:620px;margin:30px auto;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.08);">
       
       <!-- HEADER -->
-      <div style="background:linear-gradient(135deg,#6366f1,#4f46e5);padding:25px;text-align:center;color:white;">
-        <h1 style="margin:0;font-size:22px;">🛍️ EShop</h1>
-        <p style="margin-top:6px;font-size:13px;opacity:0.9;">
-          Your order has been placed successfully 🎉
-        </p>
-      </div>
+     
+<div style="
+  background:linear-gradient(135deg,#6366f1,#4f46e5);
+  padding:25px;
+  text-align:center;
+  color:white;
+">
+
+  <!-- LOGO -->
+  <img
+    src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779616569/image_wl0q3c.png"
+    alt="EShop Logo"
+    width="90"
+    style="
+      display:block;
+      margin:0 auto 15px;
+      border-radius:14px;
+      background:white;
+      padding:6px;
+    "
+  />
+
+  <h1 style="
+    margin:0;
+    font-size:22px;
+    color:white;
+  ">
+    🛍️ EShop
+  </h1>
+
+  <p style="
+    margin-top:6px;
+    font-size:13px;
+    opacity:0.9;
+  ">
+    Your order has been placed successfully 🎉
+  </p>
+
+</div>
+
+
 
       <!-- STATUS -->
       <div style="text-align:center;padding:16px;">
@@ -1138,132 +1173,313 @@ app.put("/api/order/cancel/:id", async (req, res) => {
     await order.save();
 
     // 📧 SEND EMAIL AFTER CANCEL
-  await sendEmail(
+
+await sendEmail(
   order.email,
   "❌ Order Cancelled – EShop",
   `
-  <div style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
-    
-    <div style="max-width:600px;margin:30px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,0.1);">
-      
+  <div style="
+    margin:0;
+    padding:0;
+    background:#f4f6fb;
+    font-family:Arial,sans-serif;
+  ">
+
+    <div style="
+      max-width:620px;
+      margin:30px auto;
+      background:#ffffff;
+      border-radius:16px;
+      overflow:hidden;
+      box-shadow:0 10px 25px rgba(0,0,0,0.08);
+    ">
+
       <!-- HEADER -->
-      <div style="background:linear-gradient(135deg,#ef4444,#dc2626);padding:20px;text-align:center;color:white;">
-        <h1 style="margin:0;">❌ Order Cancelled</h1>
-        <p style="margin-top:5px;font-size:13px;">
+      <div style="
+        background:linear-gradient(135deg,#ef4444,#dc2626);
+        padding:30px 20px;
+        text-align:center;
+        color:white;
+      ">
+
+        <!-- LOGO -->
+        <img
+          src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779616569/image_wl0q3c.png"
+          alt="EShop Logo"
+          width="90"
+          style="
+            display:block;
+            margin:0 auto 15px;
+            border-radius:14px;
+            background:white;
+            padding:6px;
+          "
+        />
+
+        <h1 style="
+          margin:0;
+          font-size:26px;
+          color:white;
+        ">
+          ❌ Order Cancelled
+        </h1>
+
+        <p style="
+          margin-top:8px;
+          font-size:14px;
+          opacity:0.95;
+        ">
           Your order has been cancelled successfully
         </p>
+
       </div>
 
       <!-- BODY -->
-      <div style="padding:20px;">
+      <div style="padding:25px;">
 
-        <h2 style="color:#111;">Hi ${order.user},</h2>
+        <h2 style="
+          color:#111827;
+          margin-top:0;
+          font-size:22px;
+        ">
+          Hi ${order.user},
+        </h2>
 
-        <p style="color:#555;">
+        <p style="
+          color:#4b5563;
+          font-size:15px;
+          line-height:1.7;
+        ">
           Your order has been successfully cancelled.
         </p>
 
         ${
           order.paymentStatus === "Paid"
-            ? `<p style="color:#16a34a;font-size:14px;">
-                 💰 Refund will be processed within 5-7 business days.
-               </p>`
+            ? `
+            <div style="
+              background:#ecfdf5;
+              color:#065f46;
+              padding:14px;
+              border-radius:10px;
+              margin-top:20px;
+              border:1px solid #a7f3d0;
+              font-size:14px;
+            ">
+              💰 Refund will be processed within 5–7 business days.
+            </div>
+            `
             : ""
         }
 
-        <!-- DETAILS -->
+        <!-- ORDER DETAILS -->
         <div style="
           background:#f9fafb;
-          border-radius:10px;
-          padding:15px;
-          margin-top:15px;
-          border:1px solid #eee;
+          border-radius:12px;
+          padding:18px;
+          margin-top:25px;
+          border:1px solid #e5e7eb;
         ">
-          <p><b>🆔 Order ID:</b> ${order._id}</p>
-          <p><b>💰 Amount:</b> ₹${order.total}</p>
-          <p><b>💳 Payment:</b> ${order.paymentMethod} (${order.paymentStatus})</p>
-          <p><b>📅 Cancelled At:</b> ${new Date(order.cancelledAt).toLocaleString()}</p>
+
+          <h3 style="
+            margin-top:0;
+            margin-bottom:15px;
+            color:#111827;
+            font-size:16px;
+          ">
+            📄 Order Details
+          </h3>
+
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+
+            <tr>
+              <td style="padding:8px 0;"><b>🆔 Order ID</b></td>
+              <td align="right">${order._id}</td>
+            </tr>
+
+            <tr>
+              <td style="padding:8px 0;"><b>💰 Amount</b></td>
+              <td align="right">₹${order.total}</td>
+            </tr>
+
+            <tr>
+              <td style="padding:8px 0;"><b>💳 Payment</b></td>
+              <td align="right">
+                ${order.paymentMethod} (${order.paymentStatus})
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:8px 0;"><b>📅 Cancelled At</b></td>
+              <td align="right">
+                ${new Date(order.cancelledAt).toLocaleString()}
+              </td>
+            </tr>
+
+          </table>
+
         </div>
 
         <!-- ITEMS -->
-        <div style="margin-top:25px;">
-          <h3 style="font-size:16px;color:#111;">🛒 Cancelled Items</h3>
+        <div style="margin-top:30px;">
+
+          <h3 style="
+            font-size:17px;
+            color:#111827;
+            margin-bottom:15px;
+          ">
+            🛒 Cancelled Items
+          </h3>
 
           <div style="
-            margin-top:10px;
             border:1px solid #e5e7eb;
-            border-radius:10px;
+            border-radius:12px;
             overflow:hidden;
             background:#fafafa;
           ">
 
             ${
               order.items?.length
-                ? order.items.map(item => `
-                  <div style="
-                    display:flex;
-                    justify-content:space-between;
-                    align-items:center;
-                    padding:12px 15px;
-                    border-bottom:1px solid #eee;
-                    font-size:14px;
-                  ">
-                    
-                    <div>
-                      <div style="font-weight:600;color:#111;">
-                        ${item.title}
-                      </div>
-                      <div style="font-size:12px;color:#777;">
-                        Qty: ${item.quantity}
-                      </div>
-                    </div>
+                ? order.items.map((item, index) => `
+                  <table
+                    width="100%"
+                    cellpadding="0"
+                    cellspacing="0"
+                    style="
+                      padding:15px;
+                      border-bottom:${index !== order.items.length - 1 ? "1px solid #eee" : "none"};
+                    "
+                  >
+                    <tr>
 
-                    <div style="font-weight:bold;color:#ef4444;">
-                      ₹${item.price * item.quantity}
-                    </div>
+                      <td style="padding:15px;">
+                        <div style="
+                          font-weight:600;
+                          color:#111827;
+                          font-size:14px;
+                        ">
+                          ${item.title}
+                        </div>
 
-                  </div>
+                        <div style="
+                          margin-top:4px;
+                          font-size:12px;
+                          color:#6b7280;
+                        ">
+                          Qty: ${item.quantity}
+                        </div>
+                      </td>
+
+                      <td
+                        align="right"
+                        style="
+                          padding:15px;
+                          font-weight:bold;
+                          color:#dc2626;
+                          font-size:14px;
+                        "
+                      >
+                        ₹${item.price * item.quantity}
+                      </td>
+
+                    </tr>
+                  </table>
                 `).join("")
-                : `<p style="padding:10px;color:#777;">No items found</p>`
+                : `
+                <div style="
+                  padding:15px;
+                  color:#6b7280;
+                ">
+                  No items found
+                </div>
+                `
             }
 
+            <!-- TOTAL -->
+            <table
+              width="100%"
+              cellpadding="0"
+              cellspacing="0"
+              style="
+                background:#f3f4f6;
+                border-top:1px solid #ddd;
+              "
+            >
+              <tr>
+                <td style="
+                  padding:15px;
+                  font-weight:bold;
+                ">
+                  Total
+                </td>
+
+                <td
+                  align="right"
+                  style="
+                    padding:15px;
+                    font-weight:bold;
+                    color:#111827;
+                  "
+                >
+                  ₹${order.total}
+                </td>
+              </tr>
+            </table>
+
           </div>
 
-          <!-- TOTAL -->
-          <div style="text-align:right;padding:10px 5px;font-weight:bold;">
-            Total: ₹${order.total}
-          </div>
         </div>
 
         <!-- CTA -->
-        <div style="text-align:center;margin:30px 0;">
-          <a href="https://eshop.debasish.xyz/track-order"
-             style="
+        <div style="
+          text-align:center;
+          margin:35px 0 25px;
+        ">
+          <a
+            href="https://eshop.debasish.xyz/track-order"
+            style="
               background:#6366f1;
               color:white;
-              padding:12px 24px;
+              padding:14px 26px;
               text-decoration:none;
-              border-radius:8px;
+              border-radius:10px;
               font-weight:600;
               display:inline-block;
               box-shadow:0 6px 18px rgba(99,102,241,0.3);
-             ">
+            "
+          >
             🔍 Track Orders
           </a>
         </div>
 
-        <p style="margin-top:20px;color:#777;font-size:13px;text-align:center;">
-          If this was not you, contact support immediately.
+        <p style="
+          color:#6b7280;
+          font-size:13px;
+          text-align:center;
+          line-height:1.6;
+        ">
+          If this cancellation was not initiated by you,
+          please contact support immediately.
         </p>
 
-        <p style="margin-top:15px;text-align:center;">
+        <p style="
+          text-align:center;
+          margin-top:18px;
+          color:#111827;
+        ">
           — <b>EShop Team</b>
         </p>
 
       </div>
 
       <!-- FOOTER -->
-      <div style="background:#f3f4f6;padding:12px;text-align:center;font-size:12px;color:#888;">
+      <div style="
+        background:#f9fafb;
+        padding:16px;
+        text-align:center;
+        font-size:12px;
+        color:#9ca3af;
+        border-top:1px solid #e5e7eb;
+      ">
         © ${new Date().getFullYear()} EShop. All rights reserved.
       </div>
 
@@ -1272,6 +1488,8 @@ app.put("/api/order/cancel/:id", async (req, res) => {
   </div>
   `
 );
+
+
     // ✅ RESPONSE
     res.json({
       success: true,
