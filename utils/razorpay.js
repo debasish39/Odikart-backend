@@ -1,4 +1,4 @@
-const Razorpay = require("razorpay");
+import Razorpay from "razorpay";
 
 const razorpay = new Razorpay({
 
@@ -7,4 +7,4 @@ const razorpay = new Razorpay({
 
 });
 
-module.exports = razorpay;
+export default razorpay;
