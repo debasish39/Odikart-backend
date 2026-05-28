@@ -1,115 +1,75 @@
 import Order from "../models/Order.js";
 import razorpay from "../utils/razorpay.js";
-import { sendEmail }
-from "../utils/sendEmail.js";
+import { sendEmail } from "../utils/sendEmail.js";
+import { sendWhatsApp } from "../utils/sendWhatsApp.js";
 /* =====================================
    CREATE RAZORPAY ORDER
 ===================================== */
 
-export const createOrder = async (
-  req,
-  res
-) => {
-
+export const createOrder = async (req, res) => {
   try {
-
     /* =====================================
        AMOUNT
     ===================================== */
 
-    const amount = Number(
-      req.body.amount
-    );
+    const amount = Number(req.body.amount);
 
     /* =====================================
        VALIDATION
     ===================================== */
 
-    if (
-      !amount ||
-      isNaN(amount) ||
-      amount <= 0
-    ) {
-
+    if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({
-
         success: false,
 
-        message:
-          "Invalid amount",
-
+        message: "Invalid amount",
       });
-
     }
 
     /* =====================================
        CREATE ORDER
     ===================================== */
 
-    const order =
-      await razorpay.orders.create({
+    const order = await razorpay.orders.create({
+      amount: amount * 100,
 
-        amount:
-          amount * 100,
+      currency: "INR",
 
-        currency: "INR",
-
-        receipt:
-          `receipt_${Date.now()}`,
-
-      });
+      receipt: `receipt_${Date.now()}`,
+    });
 
     /* =====================================
        RESPONSE
     ===================================== */
 
     res.status(200).json({
-
       success: true,
 
       order,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Create Order Error:",
-      error
-    );
+    console.error("Create Order Error:", error);
 
     res.status(500).json({
-
       success: false,
 
-      message:
-        "Razorpay order failed",
+      message: "Razorpay order failed",
 
       error: error.message,
-
     });
-
   }
-
 };
 /* =====================================
    SAVE ORDER
 ===================================== */
 
-export const saveOrder = async (
-  req,
-  res
-) => {
-
+export const saveOrder = async (req, res) => {
   try {
-
     /* =====================================
        CREATE ORDER
     ===================================== */
 
-    const order = new Order(
-      req.body
-    );
+    const order = new Order(req.body);
 
     await order.save();
 
@@ -118,9 +78,9 @@ export const saveOrder = async (
     ===================================== */
 
     await sendEmail(
-  order.email,
-  "🛒 Order Confirmed – EShop",
-  `
+      order.email,
+      "🛒 Order Confirmed – EShop",
+      `
   <div style="margin:0;padding:0;background:#f4f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
     
     <div style="max-width:620px;margin:30px auto;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.08);">
@@ -261,7 +221,9 @@ export const saveOrder = async (
 
             ${
               order.items?.length
-                ? order.items.map((item, index) => `
+                ? order.items
+                    .map(
+                      (item, index) => `
                   <div style="
                     display:flex;
                     justify-content:space-between;
@@ -285,7 +247,9 @@ export const saveOrder = async (
                     </div>
 
                   </div>
-                `).join("")
+                `,
+                    )
+                    .join("")
                 : `<div style="padding:12px;color:#777;">No items found</div>`
             }
 
@@ -359,203 +323,215 @@ export const saveOrder = async (
     </div>
 
   </div>
-  `
-);
+  `,
+    );
+    await sendWhatsApp(
+      order.phone,
+
+      `🛍️ *EShop Order Confirmed Successfully*
+
+━━━━━━━━━━━━━━━━━━━
+✨ *Thank You For Your Order*
+━━━━━━━━━━━━━━━━━━━
+
+Hi ${order.user} 👋
+
+Your order has been placed successfully 🎉
+
+We’re preparing your items for shipment 🚚
+
+━━━━━━━━━━━━━━━━━━━
+
+🆔 *Order ID*
+${order._id}
+
+💰 *Total Amount*
+₹${order.total}
+
+📦 *Order Status*
+${order.status}
+
+💳 *Payment Method*
+${order.paymentMethod}
+
+💵 *Payment Status*
+${order.paymentStatus}
+
+📅 *Order Date*
+${new Date(order.createdAt).toLocaleString("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+})}
+
+━━━━━━━━━━━━━━━━━━━
+
+🛒 *Ordered Items*
+
+${order.items
+  ?.map(
+    (item, index) =>
+      `${index + 1}. ${item.title}
+   Qty: ${item.quantity}
+   ₹${item.price * item.quantity}`,
+  )
+  .join("\n\n")}
+
+━━━━━━━━━━━━━━━━━━━
+
+📍 *Delivery Address*
+
+${order.deliveryAddress?.street || ""}
+
+${order.deliveryAddress?.state || ""} - ${order.deliveryAddress?.postcode || ""}
+
+${order.deliveryAddress?.country || ""}
+
+━━━━━━━━━━━━━━━━━━━
+
+🚚 *Shipping Update*
+
+We’ll notify you once your order is shipped.
+
+🔍 *Track Your Order*
+https://eshop.debasish.xyz/track-order
+
+━━━━━━━━━━━━━━━━━━━
+
+📧 Support:
+eshopcustomerinfo@gmail.com
+
+❤️ Thank you for shopping with *EShop*
+
+🛒 Happy Shopping!
+
+━━━━━━━━━━━━━━━━━━━`,
+    );
 
     /* =====================================
        RESPONSE
     ===================================== */
 
     res.status(201).json({
-
       success: true,
 
-      message:
-        "Order saved & email sent",
+      message: "Order saved & email sent",
 
       order,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Save Order Error:",
-      error
-    );
+    console.error("Save Order Error:", error);
 
     res.status(500).json({
-
       success: false,
 
-      error:
-        "Failed to save order",
-
+      error: "Failed to save order",
     });
-
   }
-
 };
-
-
-
 
 /* =====================================
    GET ALL ORDERS
 ===================================== */
 
-export const getOrders = async (
-  req,
-  res
-) => {
-
+export const getOrders = async (req, res) => {
   try {
-
     /* =====================================
        FETCH ORDERS
     ===================================== */
 
-    const orders =
-      await Order.find()
+    const orders = await Order.find()
 
-        .sort({
-          createdAt: -1,
-        });
+      .sort({
+        createdAt: -1,
+      });
 
     /* =====================================
        RESPONSE
     ===================================== */
 
     res.status(200).json({
-
       success: true,
 
       count: orders.length,
 
       orders,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Fetch Orders Error:",
-      error
-    );
+    console.error("Fetch Orders Error:", error);
 
     res.status(500).json({
-
       success: false,
 
       error: error.message,
-
     });
-
   }
-
 };
 
 /* =====================================
    GET USER ORDERS
 ===================================== */
 
-export const getUserOrders = async (
-  req,
-  res
-) => {
-
+export const getUserOrders = async (req, res) => {
   try {
-
     /* =====================================
        USER ID
     ===================================== */
 
-    const userId =
-      req.params.userId;
+    const userId = req.params.userId;
 
     /* =====================================
        FETCH ORDERS
     ===================================== */
 
-    const orders =
-      await Order.find({
-
-        userId,
-
-      }).sort({
-
-        createdAt: -1,
-
-      });
+    const orders = await Order.find({
+      userId,
+    }).sort({
+      createdAt: -1,
+    });
 
     /* =====================================
        RESPONSE
     ===================================== */
 
     res.status(200).json({
-
       success: true,
 
       count: orders.length,
 
       orders,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Fetch User Orders Error:",
-      error
-    );
+    console.error("Fetch User Orders Error:", error);
 
     res.status(500).json({
-
       success: false,
 
-      error:
-        "Failed to fetch user orders",
-
+      error: "Failed to fetch user orders",
     });
-
   }
-
 };
 /* =====================================
    TRACK ORDER
 ===================================== */
 
-export const trackOrder = async (
-  req,
-  res
-) => {
-
+export const trackOrder = async (req, res) => {
   try {
-
     /* =====================================
        FIND ORDER
     ===================================== */
 
-    const order =
-      await Order.findById(
-        req.params.id
-      );
+    const order = await Order.findById(req.params.id);
 
     /* =====================================
        ORDER NOT FOUND
     ===================================== */
 
     if (!order) {
-
       return res.status(404).json({
-
         success: false,
 
-        message:
-          "Order not found",
-
+        message: "Order not found",
       });
-
     }
 
     /* =====================================
@@ -563,68 +539,43 @@ export const trackOrder = async (
     ===================================== */
 
     res.status(200).json({
-
       success: true,
 
       order,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Track Order Error:",
-      error
-    );
+    console.error("Track Order Error:", error);
 
     res.status(500).json({
-
       success: false,
 
-      message:
-        "Server error",
-
+      message: "Server error",
     });
-
   }
-
 };
 
 /* =====================================
    CANCEL ORDER
 ===================================== */
 
-export const cancelOrder = async (
-  req,
-  res
-) => {
-
+export const cancelOrder = async (req, res) => {
   try {
-
     /* =====================================
        FIND ORDER
     ===================================== */
 
-    const order =
-      await Order.findById(
-        req.params.id
-      );
+    const order = await Order.findById(req.params.id);
 
     /* =====================================
        ORDER NOT FOUND
     ===================================== */
 
     if (!order) {
-
       return res.status(404).json({
-
         success: false,
 
-        message:
-          "Order not found",
-
+        message: "Order not found",
       });
-
     }
 
     /* =====================================
@@ -632,16 +583,11 @@ export const cancelOrder = async (
     ===================================== */
 
     if (order.cancelled) {
-
       return res.status(400).json({
-
         success: false,
 
-        message:
-          "Order already cancelled",
-
+        message: "Order already cancelled",
       });
-
     }
 
     /* =====================================
@@ -650,24 +596,16 @@ export const cancelOrder = async (
 
     const now = new Date();
 
-    const orderDate =
-      new Date(order.createdAt);
+    const orderDate = new Date(order.createdAt);
 
-    const diffDays =
-      (now - orderDate) /
-      (1000 * 60 * 60 * 24);
+    const diffDays = (now - orderDate) / (1000 * 60 * 60 * 24);
 
     if (diffDays > 7) {
-
       return res.status(400).json({
-
         success: false,
 
-        message:
-          "Cancellation period expired (7 days)",
-
+        message: "Cancellation period expired (7 days)",
       });
-
     }
 
     /* =====================================
@@ -676,11 +614,9 @@ export const cancelOrder = async (
 
     order.cancelled = true;
 
-    order.cancelledAt =
-      new Date();
+    order.cancelledAt = new Date();
 
-    order.status =
-      "Cancelled";
+    order.status = "Cancelled";
 
     await order.save();
 
@@ -688,11 +624,10 @@ export const cancelOrder = async (
        SEND EMAIL
     ===================================== */
 
-   
-await sendEmail(
-  order.email,
-  "❌ Order Cancelled – EShop",
-  `
+    await sendEmail(
+      order.email,
+      "❌ Order Cancelled – EShop",
+      `
   <div style="
     margin:0;
     padding:0;
@@ -854,7 +789,9 @@ await sendEmail(
 
             ${
               order.items?.length
-                ? order.items.map((item, index) => `
+                ? order.items
+                    .map(
+                      (item, index) => `
                   <table
                     width="100%"
                     cellpadding="0"
@@ -898,7 +835,9 @@ await sendEmail(
 
                     </tr>
                   </table>
-                `).join("")
+                `,
+                    )
+                    .join("")
                 : `
                 <div style="
                   padding:15px;
@@ -1001,40 +940,104 @@ await sendEmail(
     </div>
 
   </div>
-  `
-);
+  `,
+    );
+    await sendWhatsApp(
+      order.phone,
 
+      `❌ *EShop Order Cancelled Successfully*
+
+━━━━━━━━━━━━━━━━━━━
+🛍️ *EShop*
+━━━━━━━━━━━━━━━━━━━
+
+Hi ${order.user} 👋
+
+Your order has been cancelled successfully.
+
+━━━━━━━━━━━━━━━━━━━
+
+🆔 *Order ID*
+${order._id}
+
+💰 *Order Amount*
+₹${order.total}
+
+📦 *Order Status*
+❌ Cancelled
+
+💳 *Payment Method*
+${order.paymentMethod}
+
+💵 *Payment Status*
+${order.paymentStatus}
+
+━━━━━━━━━━━━━━━━━━━
+
+${
+  order.paymentStatus === "Paid"
+    ? `✅ *Refund Update*
+
+Your refund has been initiated successfully.
+
+⏳ Expected refund time:
+5 - 7 business days.`
+    : `ℹ️ No payment was captured for this order.`
+}
+
+━━━━━━━━━━━━━━━━━━━
+
+🛒 *Cancelled Items*
+
+${order.items
+  ?.map(
+    (item, index) =>
+      `${index + 1}. ${item.title}
+   Qty: ${item.quantity}
+   ₹${item.price * item.quantity}`,
+  )
+  .join("\n\n")}
+
+━━━━━━━━━━━━━━━━━━━
+
+📍 *Delivery Address*
+
+${order.deliveryAddress?.street || ""}
+
+${order.deliveryAddress?.state || ""} - ${order.deliveryAddress?.postcode || ""}
+
+${order.deliveryAddress?.country || ""}
+
+━━━━━━━━━━━━━━━━━━━
+
+📧 Support:
+eshopcustomerinfo@gmail.com
+
+🌐 Track Orders:
+https://eshop.debasish.xyz/track-order
+
+❤️ Thank you for shopping with EShop
+
+━━━━━━━━━━━━━━━━━━━`,
+    );
     /* =====================================
        RESPONSE
     ===================================== */
 
     res.status(200).json({
-
       success: true,
 
-      message:
-        "Order cancelled successfully & email sent",
+      message: "Order cancelled successfully & email sent",
 
       order,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Cancel Order Error:",
-      error
-    );
+    console.error("Cancel Order Error:", error);
 
     res.status(500).json({
-
       success: false,
 
-      message:
-        "Server error",
-
+      message: "Server error",
     });
-
   }
-
 };
