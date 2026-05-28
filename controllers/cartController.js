@@ -203,157 +203,38 @@ export const addToCart = async (
   req,
   res
 ) => {
+ try {
+    const { userId, product } = req.body;
 
-  try {
-
-    /* =====================================
-       REQUEST BODY
-    ===================================== */
-
-    const {
-
-      userId,
-
-      product,
-
-    } = req.body;
-
-    /* =====================================
-       VALIDATION
-    ===================================== */
-
-    if (!userId || !product) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        error:
-          "User ID and product required",
-
-      });
-
-    }
-
-    /* =====================================
-       FIND CART
-    ===================================== */
-
-    let cart =
-      await Cart.findOne({
-
-        userId,
-
-      });
-
-    /* =====================================
-       CREATE NEW CART
-    ===================================== */
+    let cart = await Cart.findOne({ userId });
 
     if (!cart) {
-
       cart = new Cart({
-
         userId,
-
-        items: [
-
-          {
-
-            ...product,
-
-            quantity: 1,
-
-          },
-
-        ],
-
+        items: [{ ...product, quantity: 1 }],
       });
-
-    }
-
-    /* =====================================
-       UPDATE EXISTING CART
-    ===================================== */
-
-    else {
-
-      const itemIndex =
-        cart.items.findIndex(
-
-          (item) =>
-
-            item.productId ===
-            product.productId
-
-        );
-
-      /* =====================================
-         PRODUCT EXISTS
-      ===================================== */
+    } else {
+      const itemIndex = cart.items.findIndex(
+        (item) => item.productId === product.productId,
+      );
 
       if (itemIndex > -1) {
-
-        cart.items[itemIndex]
-          .quantity += 1;
-
+        cart.items[itemIndex].quantity += 1;
+      } else {
+        cart.items.push({ ...product, quantity: 1 });
       }
-
-      /* =====================================
-         NEW PRODUCT
-      ===================================== */
-
-      else {
-
-        cart.items.push({
-
-          ...product,
-
-          quantity: 1,
-
-        });
-
-      }
-
     }
-
-    /* =====================================
-       SAVE CART
-    ===================================== */
 
     await cart.save();
 
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
+    res.json({
       success: true,
-
-      message:
-        "Item added to cart",
-
       cart,
-
     });
-
   } catch (error) {
-
-    console.error(
-      "Add To Cart Error:",
-      error
-    );
-
     res.status(500).json({
-
-      success: false,
-
-      error:
-        "Failed to add item",
-
+      error: "Failed to add item",
     });
-
   }
 
 };

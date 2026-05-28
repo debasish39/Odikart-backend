@@ -8,10 +8,10 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendEmail = async (to, subject, html) => {
   try {
-    console.log("📩 Sending email to:", to);
+    // console.log("📩 Sending email to:", to);
 
     if (!process.env.RESEND_API_KEY) {
-      console.error("❌ RESEND_API_KEY missing");
+      // console.error("❌ RESEND_API_KEY missing");
       return;
     }
 
@@ -23,11 +23,11 @@ export const sendEmail = async (to, subject, html) => {
     });
 
     if (error) {
-      console.error("❌ Resend Error:", error);
+      // console.error("❌ Resend Error:", error);
       return;
     }
 
-    console.log("✅ Email sent:", data);
+    // console.log("✅ Email sent:", data);
 
   } catch (error) {
     console.error("❌ Email error:", error.message);

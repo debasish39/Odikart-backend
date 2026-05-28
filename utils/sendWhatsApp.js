@@ -8,12 +8,9 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 
 );
-console.log("Twilio Client Initialized:", process.env.TWILIO_ACCOUNT_SID);
-console.log("WhatsApp Number:", process.env.TWILIO_WHATSAPP_NUMBER);
-console.log("Twilio Client Initialized:", process.env.TWILIO_AUTH_TOKEN);
 
 /* =====================================
-   SEND WHATSAPP MESSAGE
+   SEND WHATSAPP
 ===================================== */
 
 export const sendWhatsApp = async (
@@ -26,27 +23,58 @@ export const sendWhatsApp = async (
 
   try {
 
-    await client.messages.create({
+    /* =====================================
+       CLEAN PHONE NUMBER
+    ===================================== */
 
-      body: message,
+    const cleanPhone =
 
-      from:
-        process.env.TWILIO_WHATSAPP_NUMBER,
+      String(phone)
 
-      to:
-        `whatsapp:+91${phone}`,
+        .replace(/\s+/g, "")
 
-    });
+        .replace(/-/g, "")
 
-    console.log(
-      "WhatsApp Message Sent"
-    );
+        .trim();
+
+    // console.log(
+    //   "PHONE:",
+    //   cleanPhone
+    // );
+
+    /* =====================================
+       SEND MESSAGE
+    ===================================== */
+
+    const response =
+      await client.messages.create({
+
+        body: message,
+
+        from:
+          process.env.TWILIO_WHATSAPP_NUMBER,
+
+        to:
+          `whatsapp:${cleanPhone}`,
+
+      });
+
+    // console.log(
+
+    //   "WhatsApp Sent:",
+
+    //   response.sid
+
+    // );
 
   } catch (error) {
 
     console.error(
+
       "WhatsApp Error:",
+
       error.message
+
     );
 
   }

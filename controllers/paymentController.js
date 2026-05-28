@@ -4,101 +4,26 @@ import crypto from "crypto";
    CREATE RAZORPAY ORDER
 ===================================== */
 
-export const createOrder = async (
-  req,
-  res
-) => {
+export const createOrder = async (req, res) => {
+try {
+    const amount = Number(req.body.amount);
 
-  try {
-
-    /* =====================================
-       AMOUNT
-    ===================================== */
-
-    const amount = Number(
-      req.body.amount
-    );
-
-    /* =====================================
-       VALIDATION
-    ===================================== */
-
-    if (
-      !amount ||
-      isNaN(amount) ||
-      amount <= 0
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Invalid amount",
-
-      });
-
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid amount value" });
     }
 
-    /* =====================================
-       OPTIONS
-    ===================================== */
-
-    const options = {
-
-      amount:
-        amount * 100,
-
+    const order = await razorpay.orders.create({
+      amount: Math.round(amount * 100),
       currency: "INR",
-
-      receipt:
-        `receipt_${Date.now()}`,
-
-    };
-
-    /* =====================================
-       CREATE ORDER
-    ===================================== */
-
-    const order =
-      await razorpay.orders.create(
-        options
-      );
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
-      success: true,
-
-      order,
-
+      receipt: "receipt_" + Date.now(),
     });
 
+    res.json(order);
   } catch (error) {
-
-    console.error(
-      "Razorpay Error:",
-      error
-    );
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        "Razorpay order failed",
-
-      error: error.message,
-
-    });
-
+    console.error("Create Order Error:", error);
+    res.status(500).json({ error: error.message });
   }
-
 };
-
 
 /* =====================================
    VERIFY PAYMENT

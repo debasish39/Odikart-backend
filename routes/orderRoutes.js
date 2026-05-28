@@ -1,9 +1,6 @@
 import express from "express";
 
 import {
-
-  createOrder,
-
   saveOrder,
 
   getOrders,
@@ -21,12 +18,6 @@ const router = express.Router();
 /* =====================================
    ORDER ROUTES
 ===================================== */
-
-// Razorpay create order
-router.post(
-  "/create-order",
-  createOrder
-);
 
 // Save order
 router.post(

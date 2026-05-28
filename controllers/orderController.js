@@ -2,63 +2,7 @@ import Order from "../models/Order.js";
 import razorpay from "../utils/razorpay.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { sendWhatsApp } from "../utils/sendWhatsApp.js";
-/* =====================================
-   CREATE RAZORPAY ORDER
-===================================== */
 
-export const createOrder = async (req, res) => {
-  try {
-    /* =====================================
-       AMOUNT
-    ===================================== */
-
-    const amount = Number(req.body.amount);
-
-    /* =====================================
-       VALIDATION
-    ===================================== */
-
-    if (!amount || isNaN(amount) || amount <= 0) {
-      return res.status(400).json({
-        success: false,
-
-        message: "Invalid amount",
-      });
-    }
-
-    /* =====================================
-       CREATE ORDER
-    ===================================== */
-
-    const order = await razorpay.orders.create({
-      amount: amount * 100,
-
-      currency: "INR",
-
-      receipt: `receipt_${Date.now()}`,
-    });
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-      success: true,
-
-      order,
-    });
-  } catch (error) {
-    console.error("Create Order Error:", error);
-
-    res.status(500).json({
-      success: false,
-
-      message: "Razorpay order failed",
-
-      error: error.message,
-    });
-  }
-};
 /* =====================================
    SAVE ORDER
 ===================================== */
@@ -325,84 +269,102 @@ export const saveOrder = async (req, res) => {
   </div>
   `,
     );
+
     await sendWhatsApp(
       order.phone,
 
-      `🛍️ *EShop Order Confirmed Successfully*
+      `
+             🛍️ *EShop*
+       
+
+✨ *ORDER CONFIRMED SUCCESSFULLY* ✨
+
+Hey *${order.user}* 👋
+
+Thank you for shopping with us ❤️  
+Your order has been placed successfully and is now being processed 🚚
 
 ━━━━━━━━━━━━━━━━━━━
-✨ *Thank You For Your Order*
+📦 *ORDER SUMMARY*
 ━━━━━━━━━━━━━━━━━━━
 
-Hi ${order.user} 👋
-
-Your order has been placed successfully 🎉
-
-We’re preparing your items for shipment 🚚
-
-━━━━━━━━━━━━━━━━━━━
-
-🆔 *Order ID*
+🆔 *Order ID*  
 ${order._id}
 
-💰 *Total Amount*
-₹${order.total}
-
-📦 *Order Status*
-${order.status}
-
-💳 *Payment Method*
-${order.paymentMethod}
-
-💵 *Payment Status*
-${order.paymentStatus}
-
-📅 *Order Date*
+📅 *Order Date*  
 ${new Date(order.createdAt).toLocaleString("en-IN", {
   dateStyle: "medium",
   timeStyle: "short",
 })}
 
-━━━━━━━━━━━━━━━━━━━
+📦 *Order Status*  
+🟢 ${order.status}
 
-🛒 *Ordered Items*
+💳 *Payment Method*  
+${order.paymentMethod}
+
+💵 *Payment Status*  
+🟢 ${order.paymentStatus}
+
+━━━━━━━━━━━━━━━━━━━
+🛒 *ITEMS ORDERED*
+━━━━━━━━━━━━━━━━━━━
 
 ${order.items
   ?.map(
     (item, index) =>
-      `${index + 1}. ${item.title}
-   Qty: ${item.quantity}
-   ₹${item.price * item.quantity}`,
+      `🔹 *${index + 1}. ${item.title}*
+
+   Qty      : ${item.quantity}
+   Price    : ₹${item.price}
+   Subtotal : ₹${item.price * item.quantity}`,
   )
   .join("\n\n")}
 
 ━━━━━━━━━━━━━━━━━━━
-
-📍 *Delivery Address*
-
-${order.deliveryAddress?.street || ""}
-
-${order.deliveryAddress?.state || ""} - ${order.deliveryAddress?.postcode || ""}
-
-${order.deliveryAddress?.country || ""}
-
+💰 *PAYMENT DETAILS*
 ━━━━━━━━━━━━━━━━━━━
 
-🚚 *Shipping Update*
+🧾 *Grand Total*  
+💸 ₹${order.total}
 
-We’ll notify you once your order is shipped.
+━━━━━━━━━━━━━━━━━━━
+📍 *DELIVERY ADDRESS*
+━━━━━━━━━━━━━━━━━━━
 
-🔍 *Track Your Order*
+🏠 ${order.deliveryAddress?.street || ""}
+
+🌍 ${order.deliveryAddress?.state || ""}
+- ${order.deliveryAddress?.postcode || ""}
+
+🇮🇳 ${order.deliveryAddress?.country || ""}
+
+━━━━━━━━━━━━━━━━━━━
+🚚 *SHIPPING UPDATE*
+━━━━━━━━━━━━━━━━━━━
+
+Your order is being prepared for shipment 📦
+
+You’ll receive another update once your order has been shipped 🚛
+
+━━━━━━━━━━━━━━━━━━━
+🔍 *TRACK YOUR ORDER*
+━━━━━━━━━━━━━━━━━━━
+
+🌐
 https://eshop.debasish.xyz/track-order
 
 ━━━━━━━━━━━━━━━━━━━
+🆘 *CUSTOMER SUPPORT*
+━━━━━━━━━━━━━━━━━━━
 
-📧 Support:
-eshopcustomerinfo@gmail.com
+📧 eshopcustomerinfo@gmail.com
 
-❤️ Thank you for shopping with *EShop*
+━━━━━━━━━━━━━━━━━━━
 
-🛒 Happy Shopping!
+❤️ Thank you for choosing *EShop*
+
+🛒 *Happy Shopping!*
 
 ━━━━━━━━━━━━━━━━━━━`,
     );
@@ -945,81 +907,107 @@ export const cancelOrder = async (req, res) => {
     await sendWhatsApp(
       order.phone,
 
-      `❌ *EShop Order Cancelled Successfully*
+      `
+             🛍️ *EShop*
+       
 
-━━━━━━━━━━━━━━━━━━━
-🛍️ *EShop*
-━━━━━━━━━━━━━━━━━━━
+❌ *ORDER CANCELLED SUCCESSFULLY*
 
-Hi ${order.user} 👋
+Hi *${order.user}* 👋
 
 Your order has been cancelled successfully.
 
+We’re sorry to see this order cancelled 💔
+
+━━━━━━━━━━━━━━━━━━━
+📦 *ORDER DETAILS*
 ━━━━━━━━━━━━━━━━━━━
 
-🆔 *Order ID*
+🆔 *Order ID*  
 ${order._id}
 
-💰 *Order Amount*
-₹${order.total}
+📅 *Cancelled On*  
+${new Date().toLocaleString("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+})}
 
-📦 *Order Status*
-❌ Cancelled
+📦 *Order Status*  
+🔴 Cancelled
 
-💳 *Payment Method*
+💳 *Payment Method*  
 ${order.paymentMethod}
 
-💵 *Payment Status*
+💵 *Payment Status*  
 ${order.paymentStatus}
 
 ━━━━━━━━━━━━━━━━━━━
-
-${
-  order.paymentStatus === "Paid"
-    ? `✅ *Refund Update*
-
-Your refund has been initiated successfully.
-
-⏳ Expected refund time:
-5 - 7 business days.`
-    : `ℹ️ No payment was captured for this order.`
-}
-
+🛒 *CANCELLED ITEMS*
 ━━━━━━━━━━━━━━━━━━━
-
-🛒 *Cancelled Items*
 
 ${order.items
   ?.map(
     (item, index) =>
-      `${index + 1}. ${item.title}
-   Qty: ${item.quantity}
-   ₹${item.price * item.quantity}`,
+      `🔹 *${index + 1}. ${item.title}*
+
+   Qty      : ${item.quantity}
+   Price    : ₹${item.price}
+   Subtotal : ₹${item.price * item.quantity}`,
   )
   .join("\n\n")}
 
 ━━━━━━━━━━━━━━━━━━━
-
-📍 *Delivery Address*
-
-${order.deliveryAddress?.street || ""}
-
-${order.deliveryAddress?.state || ""} - ${order.deliveryAddress?.postcode || ""}
-
-${order.deliveryAddress?.country || ""}
-
+💰 *ORDER SUMMARY*
 ━━━━━━━━━━━━━━━━━━━
 
-📧 Support:
-eshopcustomerinfo@gmail.com
+🧾 *Total Amount*  
+💸 ₹${order.total}
+
+━━━━━━━━━━━━━━━━━━━
+💳 *REFUND INFORMATION*
+━━━━━━━━━━━━━━━━━━━
+
+${
+  order.paymentStatus === "Paid"
+    ? `✅ Your refund has been initiated successfully.
+
+⏳ Expected refund time:
+5 - 7 business days.
+
+💰 Refund Amount:
+₹${order.total}`
+    : `ℹ️ No payment was captured for this order.`
+}
+
+━━━━━━━━━━━━━━━━━━━
+📍 *DELIVERY ADDRESS*
+━━━━━━━━━━━━━━━━━━━
+
+🏠 ${order.deliveryAddress?.street || ""}
+
+🌍 ${order.deliveryAddress?.state || ""}
+- ${order.deliveryAddress?.postcode || ""}
+
+🇮🇳 ${order.deliveryAddress?.country || ""}
+
+━━━━━━━━━━━━━━━━━━━
+🆘 *CUSTOMER SUPPORT*
+━━━━━━━━━━━━━━━━━━━
+
+📧 eshopcustomerinfo@gmail.com
 
 🌐 Track Orders:
 https://eshop.debasish.xyz/track-order
 
-❤️ Thank you for shopping with EShop
+━━━━━━━━━━━━━━━━━━━
+
+❤️ Thank you for shopping with *EShop*
+
+We hope to serve you again soon 🛒
 
 ━━━━━━━━━━━━━━━━━━━`,
     );
+
     /* =====================================
        RESPONSE
     ===================================== */
