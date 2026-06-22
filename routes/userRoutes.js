@@ -4,23 +4,35 @@ import {
   getUsers,
   updateUser,updateUserPassword
 } from "../controllers/userController.js";
-import { adminGuard } from "../middleware/authMiddleware.js";
+import authMiddleware from "../middleware/authMiddleware.js";
+import authorizeRoles from "../middleware/roleMiddleware.js";
 const router = express.Router();
 
 /* =====================================
    USER ROUTES
 ===================================== */
 
-router.get("/", getUsers);
+router.get(
+
+  "/users",
+
+authMiddleware,
+  authorizeRoles("admin"),
+
+  getUsers
+
+);
+
 // Update user
 router.put(
-  "/:id",
-  adminGuard,
+  "/user/:id",
+  authMiddleware,
   updateUser
 );
 router.put(
   "/:id/password",
-  adminGuard,
+  authMiddleware,
   updateUserPassword
 );
+
 export default router;

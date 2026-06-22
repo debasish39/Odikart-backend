@@ -6,40 +6,88 @@ import {
 
   getWishlist,
 
-  clearWishlist,
+  addToWishlist,
 
   removeWishlistItem,
 
+  clearWishlist,
+
 } from "../controllers/wishlistController.js";
 
-const router = express.Router();
+import authMiddleware
+from "../middleware/authMiddleware.js";
+
+const router =
+  express.Router();
 
 /* =====================================
-   WISHLIST ROUTES
+   SAVE WISHLIST
 ===================================== */
 
-// Save wishlist
 router.post(
+
   "/wishlist",
+
+  authMiddleware,
+
   saveWishlist
+
 );
 
-// Get wishlist
+/* =====================================
+   GET WISHLIST
+===================================== */
+
 router.get(
-  "/wishlist/:userId",
+
+  "/wishlist",
+
+  authMiddleware,
+
   getWishlist
+
 );
 
-// Clear wishlist
-router.delete(
-  "/wishlist/clear/:userId",
-  clearWishlist
+/* =====================================
+   ADD TO WISHLIST
+===================================== */
+
+router.post(
+
+  "/wishlist/add",
+
+  authMiddleware,
+
+  addToWishlist
+
 );
 
-// Remove wishlist item
+/* =====================================
+   REMOVE ITEM
+===================================== */
+
 router.delete(
+
   "/wishlist/remove",
+
+  authMiddleware,
+
   removeWishlistItem
+
+);
+
+/* =====================================
+   CLEAR WISHLIST
+===================================== */
+
+router.delete(
+
+  "/wishlist/clear",
+
+  authMiddleware,
+
+  clearWishlist
+
 );
 
 export default router;

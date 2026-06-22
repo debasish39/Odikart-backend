@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Order from "../models/Order.js";
 import razorpay from "../utils/razorpay.js";
 import { sendEmail } from "../utils/sendEmail.js";
@@ -8,14 +9,236 @@ import { sendWhatsApp } from "../utils/sendWhatsApp.js";
 ===================================== */
 
 export const saveOrder = async (req, res) => {
+  console.log("===================================="); console.log("SAVE ORDER ROUTE HIT"); console.log("REQ BODY:", req.body); console.log("USER:", req.user); console.log("====================================");
   try {
     /* =====================================
        CREATE ORDER
     ===================================== */
+const formattedItems = req.body.items.map((item) => ({
+  productId: new mongoose.Types.ObjectId(item.productId),
 
-    const order = new Order(req.body);
+  title: item.title,
 
-    await order.save();
+  image: item.image,
+
+  price: item.price,
+
+  quantity: item.quantity,
+}));
+
+console.log("====================================");
+console.log("MAPPING ITEMS STARTED");
+
+req.body.items.forEach((item, index) => {
+
+  console.log(`RAW ITEM ${index + 1}`);
+
+  console.log("FULL ITEM:", item);
+
+  console.log("PRODUCT ID:", item.productId);
+
+  console.log("TITLE:", item.title);
+
+  console.log("PRICE:", item.price);
+
+  console.log("QUANTITY:", item.quantity);
+
+});
+
+console.log("====================================");
+
+console.log("====================================");
+console.log("FORMATTED ITEMS:");
+
+formattedItems.forEach((item, index) => {
+
+  console.log(`FORMATTED ITEM ${index + 1}`);
+
+  console.log("FULL ITEM:", item);
+
+  console.log("PRODUCT ID:", item.productId);
+
+  console.log("TITLE:", item.title);
+
+  console.log("PRICE:", item.price);
+
+  console.log("QUANTITY:", item.quantity);
+
+});
+
+console.log("====================================");
+
+
+
+console.log("====================================");
+console.log("SAVE ORDER API HIT");
+console.log("REQ BODY:", req.body);
+console.log("USER:", req.user);
+console.log("ITEMS:", req.body.items);
+console.log("====================================");
+
+
+console.log("====================================");
+console.log("RAZORPAY DATA RECEIVED");
+console.log(
+  "ORDER ID:",
+  req.body.razorpayOrderId
+);
+console.log(
+  "PAYMENT ID:",
+  req.body.razorpayPaymentId
+);
+console.log(
+  "SIGNATURE:",
+  req.body.razorpaySignature
+);
+console.log("====================================");
+
+const order = new Order({
+  userId: req.user._id,
+
+  fullname:
+    req.body.fullname ||
+    `${req.user.firstName} ${req.user.lastName}`,
+
+  email:
+    req.body.email ||
+    req.user.email,
+
+  phone:
+    req.body.phone ||
+    req.user.phone,
+
+  deliveryAddress:
+    req.body.deliveryAddress,
+
+  total:
+    req.body.total,
+
+  paymentMethod:
+    req.body.paymentMethod,
+
+  paymentStatus:
+    req.body.paymentStatus,
+
+  razorpayOrderId:
+    req.body.razorpayOrderId || "",
+
+  razorpayPaymentId:
+    req.body.razorpayPaymentId || "",
+
+  razorpaySignature:
+    req.body.razorpaySignature || "",
+
+  items:
+    formattedItems,
+});
+
+
+console.log("ORDER CREATED:", order);
+
+
+console.log("SAVING ORDER...");
+
+
+console.log("====================================");
+console.log("ORDER BEFORE SAVE:");
+
+console.log(order);
+
+console.log("ORDER ITEMS:");
+
+order.items.forEach((item, index) => {
+
+  console.log(`ORDER ITEM ${index + 1}`);
+
+  console.log("FULL ITEM:", item);
+
+  console.log("PRODUCT ID:", item.productId);
+
+  console.log("TITLE:", item.title);
+
+  console.log("PRICE:", item.price);
+
+  console.log("QUANTITY:", item.quantity);
+
+});
+
+console.log("====================================");
+
+console.log(
+  "RAZORPAY ORDER ID:",
+  req.body.razorpayOrderId
+);
+
+console.log(
+  "RAZORPAY PAYMENT ID:",
+  req.body.razorpayPaymentId
+);
+
+console.log(
+  "RAZORPAY SIGNATURE:",
+  req.body.razorpaySignature
+);
+console.log("ORDER ITEMS RECEIVED");
+
+req.body.items.forEach((item) => {
+
+  console.log({
+    productId: item.productId,
+    title: item.title,
+    image: item.image,
+    price: item.price,
+    quantity: item.quantity,
+  });
+
+});
+await order.save();
+
+console.log("====================================");
+console.log("ORDER SAVED");
+console.log(
+  "RAZORPAY ORDER ID:",
+  order.razorpayOrderId
+);
+console.log(
+  "RAZORPAY PAYMENT ID:",
+  order.razorpayPaymentId
+);
+console.log(
+  "RAZORPAY SIGNATURE:",
+  order.razorpaySignature
+);
+console.log("====================================");
+console.log("====================================");
+console.log("ORDER AFTER SAVE:");
+
+console.log(order);
+
+console.log("ORDER ITEMS AFTER SAVE:");
+
+order.items.forEach((item, index) => {
+
+  console.log(`SAVED ITEM ${index + 1}`);
+
+  console.log("FULL ITEM:", item);
+
+  console.log("PRODUCT ID:", item.productId);
+
+  console.log("TITLE:", item.title);
+
+  console.log("PRICE:", item.price);
+
+  console.log("QUANTITY:", item.quantity);
+
+});
+
+console.log("====================================");
+
+
+console.log("ORDER SAVED SUCCESSFULLY");
+console.log("ORDER ID:", order._id);
+
 
     /* =====================================
        SEND EMAIL
@@ -89,7 +312,7 @@ export const saveOrder = async (req, res) => {
       <!-- BODY -->
       <div style="padding:0 25px 25px;">
 
-        <h2 style="color:#111;font-size:18px;">Hi ${order.user},</h2>
+        <h2 style="color:#111;font-size:18px;">Hi ${order.fullname},</h2>
 
         <!-- ORDER SUMMARY -->
         <div style="
@@ -279,7 +502,7 @@ export const saveOrder = async (req, res) => {
 
 ✨ *ORDER CONFIRMED SUCCESSFULLY* ✨
 
-Hey *${order.user}* 👋
+Hey *${order.fullname}* 👋
 
 Thank you for shopping with us ❤️  
 Your order has been placed successfully and is now being processed 🚚
@@ -400,6 +623,24 @@ export const getOrders = async (req, res) => {
     /* =====================================
        FETCH ORDERS
     ===================================== */
+if (
+
+  req.user.role !==
+  "admin"
+
+) {
+
+  return res.status(403).json({
+
+    success: false,
+
+    message:
+      "Admin access only",
+
+  });
+
+}
+
 
     const orders = await Order.find()
 
@@ -439,7 +680,10 @@ export const getUserOrders = async (req, res) => {
        USER ID
     ===================================== */
 
-    const userId = req.params.userId;
+   
+const userId =
+  req.user._id;
+
 
     /* =====================================
        FETCH ORDERS
@@ -481,8 +725,10 @@ export const trackOrder = async (req, res) => {
     /* =====================================
        FIND ORDER
     ===================================== */
-
-    const order = await Order.findById(req.params.id);
+    const order =
+  await Order.findById(
+    req.params.id
+  );
 
     /* =====================================
        ORDER NOT FOUND
@@ -495,6 +741,27 @@ export const trackOrder = async (req, res) => {
         message: "Order not found",
       });
     }
+if (
+
+  order.userId.toString() !==
+  req.user._id.toString() &&
+
+  req.user.role !==
+  "admin"
+
+) {
+
+  return res.status(403).json({
+
+    success: false,
+
+    message:
+      "Not authorized",
+
+  });
+
+}
+
 
     /* =====================================
        RESPONSE
@@ -528,6 +795,15 @@ export const cancelOrder = async (req, res) => {
 
     const order = await Order.findById(req.params.id);
 
+console.log("====================================");
+console.log("CANCEL ORDER API HIT");
+console.log("ORDER:", order);
+console.log("USER:", req.user);
+console.log("====================================");
+
+console.log("PAYMENT METHOD:", order.paymentMethod);
+console.log("PAYMENT STATUS:", order.paymentStatus);
+console.log("PAYMENT ID:", order.razorpayPaymentId);
     /* =====================================
        ORDER NOT FOUND
     ===================================== */
@@ -539,6 +815,39 @@ export const cancelOrder = async (req, res) => {
         message: "Order not found",
       });
     }
+  
+console.log(
+  "ORDER USER:",
+  order.userId.toString()
+);
+
+console.log(
+  "REQUEST USER:",
+  req.user._id.toString()
+);
+
+
+if (
+
+  order.userId.toString() !==
+  req.user._id.toString() &&
+
+  req.user.role !==
+  "admin"
+
+) {
+
+  return res.status(403).json({
+
+    success: false,
+
+    message:
+      "Not authorized",
+
+  });
+
+}
+
 
     /* =====================================
        ALREADY CANCELLED
@@ -574,20 +883,57 @@ export const cancelOrder = async (req, res) => {
        CANCEL ORDER
     ===================================== */
 
-    order.cancelled = true;
+ console.log("UPDATING ORDER STATUS...");
+if (
+  order.paymentMethod === "Razorpay" &&
+  order.paymentStatus === "Paid" &&
+  order.razorpayPaymentId
+) {
 
-    order.cancelledAt = new Date();
+  console.log("STARTING REFUND");
 
-    order.status = "Cancelled";
+  const refund = await razorpay.payments.refund(
+    order.razorpayPaymentId,
+    {
+      amount: Math.round(order.total * 100),
+    }
+  );
 
-    await order.save();
+  console.log("REFUND SUCCESS:", refund);
+
+  order.paymentStatus = "Refunded";
+
+  order.refundId = refund.id;
+ order.refundStatus =
+    "Completed";
+   await order.save({
+    validateBeforeSave: false,
+  });
+}
+const updatedOrder = await Order.findByIdAndUpdate(
+  req.params.id,
+  {
+    cancelled: true,
+
+    cancelledAt: new Date(),
+
+    status: "Cancelled",
+  },
+  {
+    new: true,
+
+    runValidators: false,
+  }
+);
+
+console.log("UPDATED ORDER:", updatedOrder);
 
     /* =====================================
        SEND EMAIL
     ===================================== */
 
     await sendEmail(
-      order.email,
+      updatedOrder.email,
       "❌ Order Cancelled – EShop",
       `
   <div style="
@@ -654,7 +1000,7 @@ export const cancelOrder = async (req, res) => {
           margin-top:0;
           font-size:22px;
         ">
-          Hi ${order.user},
+          Hi ${order.fullname},
         </h2>
 
         <p style="
@@ -905,7 +1251,7 @@ export const cancelOrder = async (req, res) => {
   `,
     );
     await sendWhatsApp(
-      order.phone,
+      updatedOrder.phone,
 
       `
              🛍️ *EShop*
@@ -913,7 +1259,7 @@ export const cancelOrder = async (req, res) => {
 
 ❌ *ORDER CANCELLED SUCCESSFULLY*
 
-Hi *${order.user}* 👋
+Hi *${order.fullname}* 👋
 
 Your order has been cancelled successfully.
 
@@ -1029,3 +1375,195 @@ We hope to serve you again soon 🛒
     });
   }
 };
+
+
+
+
+
+/* =====================================
+   SELLER PRODUCT ANALYTICS
+===================================== */
+
+export const getSellerAnalytics =
+async (req, res) => {
+
+  try {
+
+    /* =====================================
+       SELLER ID
+    ===================================== */
+
+    const sellerId =
+      req.user._id;
+
+    /* =====================================
+       AGGREGATION
+    ===================================== */
+
+    const analytics =
+      await Order.aggregate([
+
+        /* =========================
+           UNWIND ITEMS
+        ========================= */
+
+        {
+          $unwind: "$items",
+        },
+
+        /* =========================
+           LOOKUP PRODUCT
+        ========================= */
+
+        {
+          $lookup: {
+            from: "products",
+
+            localField:
+              "items.productId",
+
+            foreignField: "_id",
+
+            as: "product",
+          },
+        },
+
+        /* =========================
+           UNWIND PRODUCT
+        ========================= */
+
+        {
+          $unwind: "$product",
+        },
+
+        /* =========================
+           MATCH SELLER
+        ========================= */
+
+        {
+          $match: {
+            "product.sellerId":
+              new mongoose.Types.ObjectId(
+                sellerId
+              ),
+          },
+        },
+
+        /* =========================
+           GROUP PRODUCTS
+        ========================= */
+
+        {
+          $group: {
+
+            _id:
+              "$items.productId",
+
+            title: {
+              $first:
+                "$items.title",
+            },
+
+            image: {
+              $first:
+                "$product.image",
+            },
+
+            price: {
+              $first:
+                "$items.price",
+            },
+
+            totalSold: {
+              $sum:
+                "$items.quantity",
+            },
+
+            totalRevenue: {
+              $sum: {
+                $multiply: [
+                  "$items.price",
+                  "$items.quantity",
+                ],
+              },
+            },
+
+            totalOrders: {
+              $sum: 1,
+            },
+          },
+        },
+
+        /* =========================
+           SORT
+        ========================= */
+
+        {
+          $sort: {
+            totalSold: -1,
+          },
+        },
+
+      ]);
+
+    /* =====================================
+       TOTAL REVENUE
+    ===================================== */
+
+    const totalRevenue =
+      analytics.reduce(
+
+        (acc, item) =>
+          acc + item.totalRevenue,
+
+        0
+      );
+
+    /* =====================================
+       TOTAL PRODUCTS SOLD
+    ===================================== */
+
+    const totalProductsSold =
+      analytics.reduce(
+
+        (acc, item) =>
+          acc + item.totalSold,
+
+        0
+      );
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
+    res.status(200).json({
+
+      success: true,
+
+      totalRevenue,
+
+      totalProductsSold,
+
+      totalProducts:
+        analytics.length,
+
+      analytics,
+    });
+
+  } catch (error) {
+
+    console.log(
+      "SELLER ANALYTICS ERROR:",
+      error
+    );
+
+    res.status(500).json({
+
+      success: false,
+
+      message:
+        "Failed to fetch analytics",
+    });
+  }
+};
+

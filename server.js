@@ -9,6 +9,8 @@ import paymentRoutes from "./routes/paymentRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import productRoutes from "./routes/productRoutes.js";
 
 dotenv.config();
 
@@ -48,7 +50,7 @@ app.get("/", (req, res) => {
 ===================================== */
 
 app.use(
-  "/api/users",
+  "/api",
   userRoutes
 );
 
@@ -71,7 +73,8 @@ app.use(
   "/api",
   wishlistRoutes
 );
-
+app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
 /* =====================================
    SERVER
 ===================================== */

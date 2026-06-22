@@ -17,12 +17,10 @@ export const saveCart = async (
 
     const {
 
-      userId,
-
       items,
 
     } = req.body;
-
+const userId=req.user._id;
     /* =====================================
        VALIDATION
     ===================================== */
@@ -135,7 +133,7 @@ export const getCart = async (
     ===================================== */
 
     const userId =
-      req.params.userId;
+      req.user._id;
 
     /* =====================================
        FIND CART
@@ -168,13 +166,18 @@ export const getCart = async (
        RESPONSE
     ===================================== */
 
-    res.status(200).json({
 
-      success: true,
+res.status(200).json({
 
-      cart,
+  success: true,
 
-    });
+  items: cart.items,
+
+  cart,
+
+});
+
+
 
   } catch (error) {
 
@@ -204,7 +207,22 @@ export const addToCart = async (
   res
 ) => {
  try {
-    const { userId, product } = req.body;
+    const { product } = req.body;
+const userId=req.user._id;
+
+if (!userId || !product) {
+
+  return res.status(400).json({
+
+    success: false,
+
+    error:
+      "User ID and product required",
+
+  });
+
+}
+
 
     let cart = await Cart.findOne({ userId });
 
@@ -256,13 +274,9 @@ export const increaseQuantity = async (
     ===================================== */
 
     const {
-
-      userId,
-
-      productId,
-
+productId,
     } = req.body;
-
+const userId=req.user._id;
     /* =====================================
        FIND CART
     ===================================== */
@@ -386,11 +400,10 @@ export const decreaseQuantity = async (
 
     const {
 
-      userId,
-
-      productId,
+productId,
 
     } = req.body;
+const userId=req.user._id;
 
     /* =====================================
        FIND CART
@@ -455,7 +468,25 @@ export const decreaseQuantity = async (
        DECREASE QUANTITY
     ===================================== */
 
-    item.quantity -= 1;
+if (item.quantity > 1) {
+
+  item.quantity -= 1;
+
+} else {
+
+  cart.items =
+    cart.items.filter(
+
+      (item) =>
+
+        item.productId !==
+        productId
+
+    );
+
+}
+
+
 
     /* =====================================
        REMOVE ITEM IF ZERO
@@ -533,11 +564,10 @@ export const removeCartItem = async (
 
     const {
 
-      userId,
-
-      productId,
+productId,
 
     } = req.body;
+const userId=req.user._id;
 
     /* =====================================
        FIND CART
@@ -636,11 +666,7 @@ export const clearCart = async (
        USER ID
     ===================================== */
 
-    const {
-
-      userId,
-
-    } = req.params;
+    const userId= req.user._id;
 
     /* =====================================
        CLEAR CART

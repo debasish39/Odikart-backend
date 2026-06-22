@@ -18,52 +18,91 @@ import {
 
 } from "../controllers/cartController.js";
 
-const router = express.Router();
+import authMiddleware
+from "../middleware/authMiddleware.js";
+
+const router =
+  express.Router();
 
 /* =====================================
    CART ROUTES
 ===================================== */
 
-// Save cart
+// SAVE CART
 router.post(
+
   "/cart",
+
+  authMiddleware,
+
   saveCart
+
 );
 
-// Get cart
+// GET USER CART
 router.get(
-  "/cart/:userId",
+
+  "/cart",
+
+  authMiddleware,
+
   getCart
+
 );
 
-// Add item
+// ADD TO CART
 router.post(
+
   "/cart/add",
+
+  authMiddleware,
+
   addToCart
+
 );
 
-// Increase quantity
+// INCREASE QUANTITY
 router.put(
+
   "/cart/increase",
+
+  authMiddleware,
+
   increaseQuantity
+
 );
 
-// Decrease quantity
+// DECREASE QUANTITY
 router.put(
+
   "/cart/decrease",
+
+  authMiddleware,
+
   decreaseQuantity
+
 );
 
-// Remove item
+// REMOVE ITEM
 router.delete(
+
   "/cart/remove",
+
+  authMiddleware,
+
   removeCartItem
+
 );
 
-// Clear cart
+// CLEAR CART
 router.delete(
-  "/cart/clear/:userId",
+
+  "/cart/clear",
+
+  authMiddleware,
+
   clearCart
+
 );
 
 export default router;

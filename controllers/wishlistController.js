@@ -11,13 +11,13 @@ export const saveWishlist = async (
 
   try {
 
-    const {
+  const userId =
+  req.user._id;
 
-      userId,
+const { items } =
+  req.body;
 
-      items,
 
-    } = req.body;
 
     /* =====================================
        VALIDATION
@@ -126,13 +126,18 @@ export const getWishlist = async (
 
   try {
 
-    const wishlist =
-      await Wishlist.findOne({
+    
+const userId =
+  req.user._id;
 
-        userId:
-          req.params.userId,
+const wishlist =
+  await Wishlist.findOne({
 
-      });
+    userId,
+
+  });
+
+
 
     /* =====================================
        EMPTY WISHLIST
@@ -156,11 +161,14 @@ export const getWishlist = async (
 
     res.status(200).json({
 
-      success: true,
+  success: true,
 
-      wishlist,
+  items:
+    wishlist.items,
 
-    });
+  wishlist,
+
+});
 
   } catch (error) {
 
@@ -183,6 +191,161 @@ export const getWishlist = async (
 };
 
 /* =====================================
+   ADD ITEM TO WISHLIST
+===================================== */
+
+export const addToWishlist =
+async (
+
+  req,
+  res
+
+) => {
+
+  try {
+
+    const userId =
+      req.user._id;
+
+    const { product } =
+      req.body;
+
+    /* =====================================
+       VALIDATION
+    ===================================== */
+
+    if (!product) {
+
+      return res.status(400).json({
+
+        success: false,
+
+        error:
+          "Product required",
+
+      });
+
+    }
+
+    /* =====================================
+       FIND WISHLIST
+    ===================================== */
+
+    let wishlist =
+      await Wishlist.findOne({
+
+        userId,
+
+      });
+
+    /* =====================================
+       CREATE WISHLIST
+    ===================================== */
+
+    if (!wishlist) {
+
+      wishlist =
+        new Wishlist({
+
+          userId,
+
+          items: [
+
+            {
+
+              ...product,
+
+            },
+
+          ],
+
+        });
+
+    }
+
+    /* =====================================
+       EXISTING WISHLIST
+    ===================================== */
+
+    else {
+
+      const exists =
+        wishlist.items.some(
+
+          (item) =>
+
+            item.productId ===
+            product.productId
+
+        );
+
+      if (exists) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Product already in wishlist",
+
+        });
+
+      }
+
+      wishlist.items.push({
+
+        ...product,
+
+      });
+
+    }
+
+    /* =====================================
+       SAVE
+    ===================================== */
+
+    await wishlist.save();
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
+    res.status(200).json({
+
+      success: true,
+
+      message:
+        "Added to wishlist",
+
+      wishlist,
+
+    });
+
+  } catch (error) {
+
+    console.error(
+
+      "Add Wishlist Error:",
+
+      error
+
+    );
+
+    res.status(500).json({
+
+      success: false,
+
+      error:
+        "Failed to add wishlist item",
+
+    });
+
+  }
+
+};
+
+
+/* =====================================
    CLEAR USER WISHLIST
 ===================================== */
 
@@ -193,11 +356,10 @@ export const clearWishlist = async (
 
   try {
 
-    const {
 
-      userId,
+const userId =
+  req.user._id;
 
-    } = req.params;
 
     /* =====================================
        FIND WISHLIST
@@ -284,13 +446,14 @@ export const removeWishlistItem = async (
 
   try {
 
-    const {
+   
+const userId =
+  req.user._id;
 
-      userId,
+const { productId } =
+  req.body;
 
-      productId,
 
-    } = req.body;
 
     /* =====================================
        VALIDATION

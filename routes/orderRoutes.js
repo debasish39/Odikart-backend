@@ -1,6 +1,8 @@
+
 import express from "express";
 
 import {
+
   saveOrder,
 
   getOrders,
@@ -11,42 +13,100 @@ import {
 
   cancelOrder,
 
+  getSellerAnalytics,
+
 } from "../controllers/orderController.js";
 
-const router = express.Router();
+import authMiddleware
+from "../middleware/authMiddleware.js";
+
+const router =
+  express.Router();
 
 /* =====================================
-   ORDER ROUTES
+   SAVE ORDER
 ===================================== */
 
-// Save order
 router.post(
+
   "/save-order",
+
+  authMiddleware,
+
   saveOrder
+
 );
 
-// Get all orders
+/* =====================================
+   GET ALL ORDERS
+   ADMIN ONLY
+===================================== */
+
 router.get(
+
   "/orders",
+
+  authMiddleware,
+
   getOrders
+
 );
 
-// Get user orders
+/* =====================================
+   GET USER ORDERS
+===================================== */
+
 router.get(
-  "/orders/:userId",
+
+  "/my-orders",
+
+  authMiddleware,
+
   getUserOrders
+
 );
 
-// Track order
+/* =====================================
+   TRACK ORDER
+===================================== */
+
 router.get(
+
   "/order/:id",
+
+  authMiddleware,
+
   trackOrder
+
 );
 
-// Cancel order
+/* =====================================
+   CANCEL ORDER
+===================================== */
+
 router.put(
+
   "/order/cancel/:id",
+
+  authMiddleware,
+
   cancelOrder
+
+);
+
+/* =====================================
+   SELLER ANALYTICS
+===================================== */
+
+router.get(
+
+  "/seller-analytics",
+
+  authMiddleware,
+
+  getSellerAnalytics
+
 );
 
 export default router;
+

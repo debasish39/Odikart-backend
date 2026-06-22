@@ -1,117 +1,116 @@
-import clerk from "../config/clerk.js";
+import User from "../models/User.js";
+
+import bcrypt from "bcryptjs";
 
 /* =====================================
    GET ALL USERS
 ===================================== */
 
-export const getUsers = async (req, res) => {
+export const getUsers =
+async (
+
+  req,
+  res
+
+) => {
 
   try {
 
-    // Pagination
-    const page = Number(req.query.page) || 1;
+    /* =====================================
+       ADMIN CHECK
+    ===================================== */
 
-    const limit = 20;
+    if (
 
-    const offset = (page - 1) * limit;
+      req.user.role !==
+      "admin"
 
-    // Fetch users from Clerk
-    const users = await clerk.users.getUserList({
-      limit,
-      offset,
-    });
+    ) {
 
-    console.log("USERS:", users);
+      return res.status(403).json({
 
-    // Empty users
-    if (!users || users.length === 0) {
+        success: false,
 
-      return res.json({
-        success: true,
-        users: [],
-        message: "No users found",
+        message:
+          "Admin access only",
+
       });
 
     }
 
     /* =====================================
-       FORMAT IST DATE
+       PAGINATION
     ===================================== */
 
-    const formatIST = (date) => {
+    const page =
+      Number(req.query.page) || 1;
 
-      if (!date) return "No login yet";
+    const limit = 20;
 
-      return new Date(date).toLocaleString(
-        "en-IN",
-        {
-          timeZone: "Asia/Kolkata",
-
-          day: "2-digit",
-
-          month: "short",
-
-          year: "numeric",
-
-          hour: "2-digit",
-
-          minute: "2-digit",
-        }
-      );
-
-    };
+    const skip =
+      (page - 1) * limit;
 
     /* =====================================
-       FORMAT USERS
+       FETCH USERS
     ===================================== */
 
-    const formattedUsers = users.map((user) => ({
+    const users =
+      await User.find()
 
-      id: user.id,
+        .select(
 
-      // All emails
-      emails: user.emailAddresses.map(
-        (e) => e.emailAddress
-      ),
+          "-password -otp -otpExpiry -resetPasswordOTP -resetPasswordOTPExpiry"
 
-      // Full name
-      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        )
 
-      // Profile image
-      image: user.imageUrl,
+        .skip(skip)
 
-      // Created date
-      createdAt: formatIST(user.createdAt),
+        .limit(limit)
 
-      // Last login
-      lastSignIn: formatIST(user.lastSignInAt),
+        .sort({
+          createdAt: -1,
+        });
 
-    }));
+    /* =====================================
+       TOTAL USERS
+    ===================================== */
+
+    const totalUsers =
+      await User.countDocuments();
 
     /* =====================================
        RESPONSE
     ===================================== */
 
-    res.json({
+    res.status(200).json({
+
       success: true,
 
       page,
 
-      count: formattedUsers.length,
+      count:
+        users.length,
 
-      users: formattedUsers,
+      totalUsers,
+
+      users,
+
     });
 
   } catch (error) {
 
     console.error(
-      "Fetch Users Error:",
+      "Get Users Error:",
       error
     );
 
     res.status(500).json({
+
       success: false,
-      error: "Failed to fetch users",
+
+      error:
+        error.message,
+
     });
 
   }
@@ -119,70 +118,125 @@ export const getUsers = async (req, res) => {
 };
 
 /* =====================================
-   UPDATE USER NAME
+   UPDATE USER
 ===================================== */
 
-export const updateUser = async (req, res) => {
+export const updateUser =
+async (
+
+  req,
+  res
+
+) => {
 
   try {
 
-    // User ID from params
-    const userId = req.params.id;
+    const userId =
+      req.params.id;
 
-    // Request body
     const {
+
       firstName,
+
       lastName,
+
+      phone,
+
+      image,
+
+      role,
+
     } = req.body;
 
-    // Update Clerk user
-    const updated = await clerk.users.updateUser(
-      userId,
-      {
+    /* =====================================
+       FIND USER
+    ===================================== */
 
-        ...(firstName && {
-          firstName,
-        }),
+    const user =
+      await User.findById(
+        userId
+      );
 
-        ...(lastName && {
-          lastName,
-        }),
+    if (!user) {
 
-      }
-    );
+      return res.status(404).json({
 
-    // Response
-    res.json({
+        success: false,
+
+        message:
+          "User not found",
+
+      });
+
+    }
+
+    /* =====================================
+       UPDATE USER
+    ===================================== */
+
+    user.firstName =
+      firstName ||
+      user.firstName;
+
+    user.lastName =
+      lastName ||
+      user.lastName;
+
+    user.phone =
+      phone ||
+      user.phone;
+
+    user.image =
+      image ||
+      user.image;
+
+    /* =====================================
+       ADMIN CAN CHANGE ROLE
+    ===================================== */
+
+    if (
+
+      req.user.role ===
+      "admin" &&
+
+      role
+
+    ) {
+
+      user.role = role;
+
+    }
+
+    await user.save();
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
+    res.status(200).json({
 
       success: true,
 
-      user: {
+      message:
+        "User updated successfully",
 
-        id: updated.id,
-
-        name:
-          `${updated.firstName || ""} ${updated.lastName || ""}`.trim(),
-
-        email:
-          updated.emailAddresses[0]
-            ?.emailAddress || "No email",
-
-      },
+      user,
 
     });
 
-  } catch (err) {
+  } catch (error) {
 
     console.error(
-      "Update name error:",
-      err
+      "Update User Error:",
+      error
     );
 
     res.status(500).json({
 
       success: false,
 
-      error: err.message,
+      error:
+        error.message,
 
     });
 
@@ -194,94 +248,32 @@ export const updateUser = async (req, res) => {
    UPDATE USER PASSWORD
 ===================================== */
 
-export const updateUserPassword = async (
+export const updateUserPassword =
+async (
+
   req,
   res
+
 ) => {
 
   try {
 
-    // User ID
-    const userId = req.params.id;
+    const userId =
+      req.params.id;
 
-    // Password from body
-    const { password } = req.body;
+    const { password } =
+      req.body;
 
     /* =====================================
        VALIDATION
     ===================================== */
 
     if (
+
       !password ||
+
       password.length < 8
-    ) {
 
-      return res.status(400).json({
-        success: false,
-        error: "Password must be ≥ 8 chars",
-      });
-
-    }
-
-    /* =====================================
-       UPDATE PASSWORD
-    ===================================== */
-
-    const updated =
-      await clerk.users.updateUser(
-        userId,
-        {
-          password,
-        }
-      );
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.json({
-
-      success: true,
-
-      message: "Password updated",
-
-      userId: updated.id,
-
-    });
-
-  } catch (error) {
-
-    console.error(
-      "ERROR DETAILS:",
-      error.errors
-    );
-
-    /* =====================================
-       EMAIL EXISTS
-    ===================================== */
-
-    if (
-      error.errors?.[0]?.code ===
-      "form_identifier_exists"
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        error: "Email already exists",
-
-      });
-
-    }
-
-    /* =====================================
-       VERIFICATION NEEDED
-    ===================================== */
-
-    if (
-      error.errors?.[0]?.code ===
-      "form_verification_needed"
     ) {
 
       return res.status(400).json({
@@ -289,24 +281,86 @@ export const updateUserPassword = async (
         success: false,
 
         error:
-          "Email must be verified before setting as primary",
+          "Password must be at least 8 characters",
 
       });
 
     }
 
     /* =====================================
-       SERVER ERROR
+       FIND USER
     ===================================== */
+
+    const user =
+      await User.findById(
+        userId
+      );
+
+    if (!user) {
+
+      return res.status(404).json({
+
+        success: false,
+
+        error:
+          "User not found",
+
+      });
+
+    }
+
+    /* =====================================
+       HASH PASSWORD
+    ===================================== */
+
+    const hashedPassword =
+      await bcrypt.hash(
+
+        password,
+
+        10
+
+      );
+
+    /* =====================================
+       UPDATE PASSWORD
+    ===================================== */
+
+    user.password =
+      hashedPassword;
+
+    await user.save();
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
+    res.status(200).json({
+
+      success: true,
+
+      message:
+        "Password updated successfully",
+
+    });
+
+  } catch (error) {
+
+    console.error(
+      "Password Update Error:",
+      error
+    );
 
     res.status(500).json({
 
       success: false,
 
-      error: error.message,
+      error:
+        error.message,
 
     });
 
   }
 
 };
+
