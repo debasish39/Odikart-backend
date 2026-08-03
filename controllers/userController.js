@@ -55,7 +55,8 @@ async (
     ===================================== */
 
     const users =
-      await User.find()
+      await User.find({  isDeleted: false,
+})
 
         .select(
 
@@ -75,8 +76,9 @@ async (
        TOTAL USERS
     ===================================== */
 
-    const totalUsers =
-      await User.countDocuments();
+    const totalUsers = await User.countDocuments({
+  isDeleted: false,
+});
 
     /* =====================================
        RESPONSE
@@ -364,3 +366,84 @@ async (
 
 };
 
+/* =====================================
+   DELETE USER PERMANENTLY
+===================================== */
+
+export const deleteUser = async (req, res) => {
+  try {
+    // Admin check
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const userId = req.params.id;
+
+    // Prevent admin from deleting themselves (optional)
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot delete your own account.",
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    await User.findByIdAndDelete(userId);
+
+    res.status(200).json({
+      success: true,
+      message: "User deleted permanently.",
+    });
+
+  } catch (error) {
+    console.error("Delete User Error:", error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+export const deleteMyAccount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+  user.isDeleted = true;
+user.deletedAt = new Date();
+
+await user.save();
+    res.status(200).json({
+      success: true,
+      message: "Your account has been permanently deleted.",
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};

@@ -282,21 +282,21 @@ const productSchema = new mongoose.Schema(
       default: "",
     },
 
-    /* =====================================
-       CATEGORY
-    ===================================== */
+ /* =====================================
+   CATEGORY
+===================================== */
 
-    category: {
-      type: String,
+category: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Category",
+  required: true,
+},
 
-      required: true,
-    },
-
-    subCategory: {
-      type: String,
-
-      default: "",
-    },
+subCategory: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Category",
+  default: null,
+},
 
     tags: [
       {
@@ -631,11 +631,6 @@ const productSchema = new mongoose.Schema(
 /* =====================================
    AUTO GENERATE SLUG
 ===================================== */
-
-/* =====================================
-   AUTO GENERATE SLUG
-===================================== */
-
 productSchema.pre(
   "save",
 

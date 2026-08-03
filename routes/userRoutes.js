@@ -2,7 +2,10 @@ import express from "express";
 
 import {
   getUsers,
-  updateUser,updateUserPassword
+  updateUser,
+  updateUserPassword,
+  deleteUser,
+  deleteMyAccount,
 } from "../controllers/userController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/roleMiddleware.js";
@@ -34,5 +37,22 @@ router.put(
   authMiddleware,
   updateUserPassword
 );
+/* =====================================
+   DELETE USER (ADMIN)
+===================================== */
+router.delete(
+  "/user/:id",
+  authMiddleware,
+  authorizeRoles("admin"),
+  deleteUser
+);
 
+/* =====================================
+   DELETE MY ACCOUNT
+===================================== */
+router.delete(
+  "/me",
+  authMiddleware,
+  deleteMyAccount
+);
 export default router;

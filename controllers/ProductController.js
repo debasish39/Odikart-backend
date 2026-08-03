@@ -3,7 +3,7 @@ import Product from "../models/Product.js";
 import slugify from "slugify";
 import { nanoid } from "nanoid";
 import Order from "../models/Order.js";
-
+import Category from "../models/Category.js";
 /* =====================================
    CREATE PRODUCT
 ===================================== */
@@ -15,7 +15,6 @@ export const createProduct = async (req, res) => {
     console.log("REQ BODY:", req.body);
 
     console.log("REQ FILES:", req.files);
-
     const {
       title,
       description,
@@ -71,7 +70,27 @@ export const createProduct = async (req, res) => {
         message: "Please fill all required fields",
       });
     }
+const categoryExists = await Category.findById(category);
 
+if (!categoryExists) {
+  return res.status(404).json({
+    success: false,
+    message: "Category not found",
+  });
+}
+
+if (subCategory) {
+
+  const subCategoryExists = await Category.findById(subCategory);
+
+  if (!subCategoryExists) {
+    return res.status(404).json({
+      success: false,
+      message: "Subcategory not found",
+    });
+  }
+
+}
     /* =====================================
        ROLE CHECK
     ===================================== */
@@ -92,20 +111,34 @@ export const createProduct = async (req, res) => {
        PARSE ARRAYS
     ===================================== */
 
-    const parsedTags =
-      tags ? JSON.parse(tags) : [];
+ /* =====================================
+   PARSE ARRAYS
+===================================== */
 
-    const parsedColors =
-      colors ? JSON.parse(colors) : [];
+const parsedTags =
+  typeof tags === "string"
+    ? JSON.parse(tags)
+    : tags || [];
 
-    const parsedSizes =
-      sizes ? JSON.parse(sizes) : [];
+const parsedColors =
+  typeof colors === "string"
+    ? JSON.parse(colors)
+    : colors || [];
 
-    const parsedMetaKeywords =
-      metaKeywords
-        ? JSON.parse(metaKeywords)
-        : [];
+const parsedSizes =
+  typeof sizes === "string"
+    ? JSON.parse(sizes)
+    : sizes || [];
 
+const parsedMetaKeywords =
+  typeof metaKeywords === "string"
+    ? JSON.parse(metaKeywords)
+    : metaKeywords || [];
+
+const parsedDimensions =
+  typeof dimensions === "string"
+    ? JSON.parse(dimensions)
+    : dimensions || {};
     /* =====================================
        UPLOADED IMAGES
     ===================================== */
@@ -257,7 +290,14 @@ const product =
 
     seller: req.user?._id,
   });
-
+await Category.findByIdAndUpdate(
+  category,
+  {
+    $inc: {
+      productCount: 1,
+    },
+  }
+);
 
 
     /* =====================================
@@ -328,18 +368,11 @@ async (req, res) => {
        CATEGORY FILTER
     ===================================== */
 
-    if (req.query.category) {
+ if (req.query.category) {
 
-      query.category = {
+  query.category = req.query.category;
 
-        $regex:
-          req.query.category,
-
-        $options: "i",
-
-      };
-
-    }
+}
 
     /* =====================================
        BRAND FILTER
@@ -546,16 +579,19 @@ async (req, res) => {
        FETCH PRODUCTS
     ===================================== */
 
-    const products =
-      await Product.find(query)
-
-      .populate(
-
-        "seller",
-
-        "firstName lastName email image"
-
-      )
+   const products = await Product.find(query)
+.populate(
+  "category",
+  "name slug image"
+)
+.populate(
+  "subCategory",
+  "name slug"
+)
+.populate(
+  "seller",
+  "firstName lastName email image"
+)
 
       .sort(sortOption)
 
@@ -633,11 +669,19 @@ async (req, res) => {
 
 export const getSingleProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate(
-      "seller",
-
-      "firstName lastName email image",
-    );
+ const product = await Product.findById(req.params.id)
+.populate(
+    "category",
+    "name slug image"
+)
+.populate(
+    "subCategory",
+    "name slug"
+)
+.populate(
+    "seller",
+    "firstName lastName email image"
+);
 
     if (!product) {
       return res.status(404).json({
@@ -666,12 +710,12 @@ export const getSingleProduct = async (req, res) => {
 ===================================== */
 export const updateProduct = async (req, res) => {
   try {
+
     const product = await Product.findById(req.params.id);
 
     if (!product) {
       return res.status(404).json({
         success: false,
-
         message: "Product not found",
       });
     }
@@ -686,40 +730,81 @@ export const updateProduct = async (req, res) => {
     ) {
       return res.status(403).json({
         success: false,
-
         message: "You can only update your own products",
       });
     }
 
     /* =====================================
-       UPDATE
+       CATEGORY COUNT UPDATE
     ===================================== */
 
-    const updatedProduct = await Product.findByIdAndUpdate(
-      req.params.id,
+    const oldCategory = product.category?.toString();
+    const newCategory = req.body.category;
 
-      req.body,
+    if (
+      newCategory &&
+      oldCategory !== newCategory
+    ) {
 
-      {
-        returnDocument: "after",
+      // Decrease old category count
+      await Category.findByIdAndUpdate(
+        oldCategory,
+        {
+          $inc: {
+            productCount: -1,
+          },
+        }
+      );
 
-        runValidators: true,
-      },
-    );
+      // Increase new category count
+      await Category.findByIdAndUpdate(
+        newCategory,
+        {
+          $inc: {
+            productCount: 1,
+          },
+        }
+      );
+
+    }
+
+    /* =====================================
+       UPDATE PRODUCT
+    ===================================== */
+
+    const updatedProduct =
+      await Product.findByIdAndUpdate(
+
+        req.params.id,
+
+        req.body,
+
+        {
+          new: true,
+          runValidators: true,
+        }
+
+      )
+      .populate("category", "name slug")
+      .populate("subCategory", "name slug")
+      .populate(
+        "seller",
+        "firstName lastName email image"
+      );
 
     res.status(200).json({
       success: true,
-
       message: "Product updated successfully",
-
       product: updatedProduct,
     });
+
   } catch (error) {
+
     res.status(500).json({
       success: false,
-
       message: error.message,
     });
+
   }
 };
 
@@ -729,12 +814,12 @@ export const updateProduct = async (req, res) => {
 
 export const deleteProduct = async (req, res) => {
   try {
+
     const product = await Product.findById(req.params.id);
 
     if (!product) {
       return res.status(404).json({
         success: false,
-
         message: "Product not found",
       });
     }
@@ -747,38 +832,48 @@ export const deleteProduct = async (req, res) => {
       req.user.role === "seller" &&
       product.seller?.toString() !== req.user._id?.toString()
     ) {
-      console.log(product.seller?.toString(), req.user._id?.toString());
       return res.status(403).json({
         success: false,
-
         message: "You can only delete your own products",
       });
     }
+
+    /* =====================================
+       UPDATE CATEGORY COUNT
+    ===================================== */
+
+    await Category.findByIdAndUpdate(
+      product.category,
+      {
+        $inc: {
+          productCount: -1,
+        },
+      }
+    );
 
     /* =====================================
        SOFT DELETE
     ===================================== */
 
     product.isDeleted = true;
-
     product.isActive = false;
 
     await product.save();
 
     res.status(200).json({
       success: true,
-
       message: "Product deleted successfully",
     });
+
   } catch (error) {
+
     res.status(500).json({
       success: false,
-
       message: error.message,
     });
+
   }
 };
-
 /* =====================================
    GET SELLER PRODUCTS
 ===================================== */

@@ -59,6 +59,7 @@ const userSchema = new mongoose.Schema(
       type: String,
 
       required: true,
+      minlength: 6,
 
     },
 
@@ -179,11 +180,25 @@ role: {
    SELLER INFO
 ===================================== */
 
+/* =====================================
+   SELLER INFORMATION
+===================================== */
+
 sellerInfo: {
+
+  /* Store Details */
 
   shopName: {
     type: String,
     default: "",
+    trim: true,
+  },
+
+  shopSlug: {
+    type: String,
+    default: "",
+    lowercase: true,
+    trim: true,
   },
 
   shopLogo: {
@@ -191,19 +206,208 @@ sellerInfo: {
     default: "",
   },
 
-  gstNumber: {
+  shopBanner: {
     type: String,
     default: "",
   },
 
-  businessAddress: {
+  description: {
     type: String,
     default: "",
   },
+
+  /* Business Details */
+
+  businessType: {
+    type: String,
+    enum: [
+      "",
+      "Individual",
+      "Proprietorship",
+      "Partnership",
+      "Private Limited",
+      "LLP",
+      "Other",
+    ],
+    default: "",
+  },
+
+  ownerName: {
+    type: String,
+    default: "",
+  },
+
+  gstNumber: {
+    type: String,
+    default: "",
+    uppercase: true,
+  },
+
+  panNumber: {
+    type: String,
+    default: "",
+    uppercase: true,
+  },
+
+  businessRegistrationNumber: {
+    type: String,
+    default: "",
+  },
+
+  /* Contact */
+
+  businessEmail: {
+    type: String,
+    default: "",
+    lowercase: true,
+  },
+
+  businessPhone: {
+    type: String,
+    default: "",
+  },
+
+  website: {
+    type: String,
+    default: "",
+  },
+
+  /* Business Address */
+
+  businessAddress: {
+
+    street: String,
+
+    city: String,
+
+    state: String,
+
+    postcode: String,
+
+    country: String,
+
+  },
+
+  /* Bank Details */
+
+  bankDetails: {
+
+    accountHolderName: {
+      type: String,
+      default: "",
+    },
+
+    bankName: {
+      type: String,
+      default: "",
+    },
+
+    accountNumber: {
+      type: String,
+      default: "",
+    },
+
+    ifscCode: {
+      type: String,
+      default: "",
+    },
+
+    upiId: {
+      type: String,
+      default: "",
+    },
+
+  },
+
+  /* Seller Performance */
+
+  totalProducts: {
+    type: Number,
+    default: 0,
+  },
+
+  totalOrders: {
+    type: Number,
+    default: 0,
+  },
+
+  totalSales: {
+    type: Number,
+    default: 0,
+  },
+
+  totalRevenue: {
+    type: Number,
+    default: 0,
+  },
+
+  averageRating: {
+    type: Number,
+    default: 0,
+  },
+
+  totalReviews: {
+    type: Number,
+    default: 0,
+  },
+
+  /* Verification */
 
   isSellerVerified: {
     type: Boolean,
     default: false,
+  },
+
+  verifiedAt: {
+    type: Date,
+    default: null,
+  },
+
+  verificationDocuments: [
+
+    {
+
+      name: String,
+
+      url: String,
+
+    },
+
+  ],
+
+  /* Subscription */
+
+  sellerPlan: {
+    type: String,
+    enum: [
+      "Free",
+      "Silver",
+      "Gold",
+      "Platinum",
+    ],
+    default: "Free",
+  },
+
+  commissionRate: {
+    type: Number,
+    default: 10,
+  },
+
+  /* Seller Status */
+
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+
+  isSuspended: {
+    type: Boolean,
+    default: false,
+  },
+
+  joinedAt: {
+    type: Date,
+    default: Date.now,
   },
 
 },
@@ -214,9 +418,44 @@ sellerInfo: {
 
 adminInfo: {
 
-  permissions: [{
+  permissions: [
+
+    {
+
+      type: String,
+
+      enum: [
+
+        "manage_users",
+
+        "manage_sellers",
+
+        "manage_products",
+
+        "manage_orders",
+
+        "manage_categories",
+
+        "manage_coupons",
+
+        "manage_reviews",
+
+        "manage_payments",
+
+        "manage_banners",
+
+        "manage_reports",
+
+      ],
+
+    },
+
+  ],
+
+  designation: {
     type: String,
-  }],
+    default: "",
+  },
 
 },
 
@@ -235,7 +474,19 @@ adminInfo: {
       default: false,
 
     },
+/* =====================================
+   ACCOUNT DELETION
+===================================== */
 
+isDeleted: {
+  type: Boolean,
+  default: false,
+},
+
+deletedAt: {
+  type: Date,
+  default: null,
+},
     blockedAt: {
 
       type: Date,

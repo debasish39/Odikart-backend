@@ -6,7 +6,7 @@ import {
   verifySigninOTP,
   resendOTP,
  signinWithPassword,
- sendLoginOTP,resendLoginOTP,getUsers,changePassword, forgotPassword, verifyResetPasswordOTP, resetPassword,getMe,updateProfile
+ sendLoginOTP,resendLoginOTP,getUsers,changePassword, forgotPassword, verifyResetPasswordOTP, resetPassword,getMe,updateProfile,  deleteMyAccount,
 } from "../controllers/authController.js";
 import {authMiddleware} from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
@@ -114,7 +114,16 @@ router.put(
   authMiddleware,
   upload.single("image"),
   updateProfile
-)
+);
+/* =====================================
+   DELETE MY ACCOUNT
+===================================== */
+
+router.delete(
+  "/delete-account",
+  authMiddleware,
+  deleteMyAccount
+);
 // router.post(
 
 //   "/add-product",

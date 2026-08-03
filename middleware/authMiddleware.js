@@ -148,26 +148,18 @@ export const authMiddleware =
 
     } catch (error) {
 
-      console.error(
-        "\n❌ AUTH ERROR:"
-      );
+  console.error("\n❌ AUTH ERROR:");
+console.log("JWT_SECRET LENGTH:", process.env.JWT_SECRET?.length);
+console.log("JWT_SECRET LENGTH:", process.env.JWT_SECRET);
+  console.error("NAME:", error.name);
+  console.error("MESSAGE:", error.message);
 
-      console.error(error);
+  return res.status(401).json({
+    success: false,
+    message: error.message,
+  });
 
-      console.log(
-        "====================================\n"
-      );
-
-      res.status(401).json({
-
-        success: false,
-
-        message:
-          "Invalid token",
-
-      });
-
-    }
+}
 
   };
 

@@ -79,7 +79,12 @@ export const resendOTP = async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     /* =====================================
        CHECK VERIFIED
     ===================================== */
@@ -356,7 +361,12 @@ async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
 if (String(user.otp) !== String(otp)){
       return res.status(400).json({
 
@@ -458,32 +468,26 @@ async (
         email,
 
       });
+if (!user) {
+  return res.status(404).json({
+    success: false,
+    message: "User not found",
+  });
+}
 
-    if (!user) {
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
 
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-
-    if (!user.isVerified) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Account not verified",
-
-      });
-
-    }
+if (!user.isVerified) {
+  return res.status(400).json({
+    success: false,
+    message: "Account not verified",
+  });
+}
 
     const isMatch =
       await bcrypt.compare(
@@ -579,7 +583,12 @@ async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     const otp =
       generateOTP();
 
@@ -670,7 +679,12 @@ async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     if (user.otp !== otp) {
 
       return res.status(400).json({
@@ -1037,7 +1051,12 @@ async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     /* =====================================
        OTP CHECK
     ===================================== */
@@ -1159,7 +1178,12 @@ async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     /* =====================================
        VERIFY OTP
     ===================================== */
@@ -1315,7 +1339,12 @@ export const resendLoginOTP = async (
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     /* =====================================
        ACCOUNT CHECK
     ===================================== */
@@ -1535,7 +1564,12 @@ async (req, res) => {
       });
 
     }
-
+if (user.isDeleted) {
+  return res.status(403).json({
+    success: false,
+    message: "This account has been permanently deleted.",
+  });
+}
     /* =====================================
        UPDATE FIELDS
     ===================================== */
@@ -1599,4 +1633,112 @@ async (req, res) => {
 
   }
 
+};
+/* =====================================
+   DELETE MY ACCOUNT
+===================================== */
+
+export const deleteMyAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (user.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Account is already deleted.",
+      });
+    }
+
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+
+    // Optional: clear sensitive data
+    user.otp = null;
+    user.otpExpiry = null;
+    user.resetPasswordOTP = null;
+    user.resetPasswordOTPExpiry = null;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Your account has been permanently deleted.",
+    });
+  } catch (error) {
+    console.error("Delete My Account Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+/* =====================================
+   DELETE USER (ADMIN)
+===================================== */
+
+export const deleteUser = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only.",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (req.user._id.toString() === id) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot delete your own account.",
+      });
+    }
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    if (user.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "User is already deleted.",
+      });
+    }
+
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+
+    // Optional: clear sensitive data
+    user.otp = null;
+    user.otpExpiry = null;
+    user.resetPasswordOTP = null;
+    user.resetPasswordOTPExpiry = null;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "User deleted successfully.",
+    });
+  } catch (error) {
+    console.error("Delete User Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };

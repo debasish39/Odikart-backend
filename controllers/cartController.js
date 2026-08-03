@@ -309,15 +309,14 @@ const userId=req.user._id;
        FIND ITEM
     ===================================== */
 
-    const item =
-      cart.items.find(
+   const item = cart.items.find(
 
-        (item) =>
+  (item) =>
 
-          item.productId ===
-          productId
+    item.productId.toString() ===
+    productId.toString()
 
-      );
+);
 
     /* =====================================
        ITEM NOT FOUND
@@ -474,15 +473,14 @@ if (item.quantity > 1) {
 
 } else {
 
-  cart.items =
-    cart.items.filter(
+cart.items = cart.items.filter(
 
-      (item) =>
+  item =>
 
-        item.productId !==
-        productId
+    item.productId.toString() !==
+    productId.toString()
 
-    );
+);
 
 }
 
@@ -494,15 +492,14 @@ if (item.quantity > 1) {
 
     if (item.quantity <= 0) {
 
-      cart.items =
-        cart.items.filter(
+    cart.items = cart.items.filter(
 
-          (item) =>
+  item =>
 
-            item.productId !==
-            productId
+    item.productId.toString() !==
+    productId.toString()
 
-        );
+);
 
     }
 
@@ -601,15 +598,14 @@ const userId=req.user._id;
        REMOVE ITEM
     ===================================== */
 
-    cart.items =
-      cart.items.filter(
+    cart.items = cart.items.filter(
 
-        (item) =>
+  item =>
 
-          item.productId !==
-          productId
+    item.productId.toString() !==
+    productId.toString()
 
-      );
+);
 
     /* =====================================
        SAVE CART

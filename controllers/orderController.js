@@ -3,6 +3,10 @@ import Order from "../models/Order.js";
 import razorpay from "../utils/razorpay.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { sendWhatsApp } from "../utils/sendWhatsApp.js";
+import Coupon from "../models/Coupon.js";
+import { generateOrderNumber }
+from "../utils/generateOrderNumber.js";
+import Courier from "../models/Courier.js";
 
 /* =====================================
    SAVE ORDER
@@ -93,10 +97,111 @@ console.log(
   req.body.razorpaySignature
 );
 console.log("====================================");
+/* =====================================
+   APPLY COUPON
+===================================== */
 
+let couponCode = "";
+let couponDiscount = 0;
+let couponType = "";
+let finalAmount = req.body.total;
+
+if (req.body.couponCode) {
+
+  const coupon = await Coupon.findOne({
+
+    code: req.body.couponCode.toUpperCase(),
+
+    isActive: true,
+
+  });
+
+  if (!coupon) {
+
+    return res.status(400).json({
+
+      success: false,
+
+      message: "Invalid coupon",
+
+    });
+
+  }
+
+if (
+  coupon.expiryDate &&
+  coupon.expiryDate < new Date()
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Coupon expired",
+  });
+}
+ if (req.body.subtotal < coupon.minOrderAmount) {
+
+    return res.status(400).json({
+
+      success: false,
+
+      message:
+        `Minimum order ₹${coupon.minOrderAmount} required`,
+
+    });
+
+  }
+
+ if (
+  coupon.usedBy.some(
+    (id) =>
+      id.toString() ===
+      req.user._id.toString()
+  )
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Coupon already used",
+  });
+}
+
+const subtotal = req.body.subtotal || 0;
+const shipping = req.body.shippingCharge || 0;
+const tax = req.body.tax || 0;
+
+if (coupon.discountType === "PERCENTAGE") {
+
+  couponDiscount =
+    (subtotal * coupon.discountValue) / 100;
+
+  if (coupon.maxDiscount > 0) {
+
+    couponDiscount = Math.min(
+      couponDiscount,
+      coupon.maxDiscount
+    );
+
+  }
+
+} else {
+
+  couponDiscount = coupon.discountValue;
+
+}
+
+finalAmount = Math.max(
+  0,
+  subtotal + shipping + tax - couponDiscount
+);
+
+  couponCode = coupon.code;
+
+  couponType =
+    coupon.discountType;
+
+
+}
 const order = new Order({
   userId: req.user._id,
-
+  orderNumber: generateOrderNumber(),
   fullname:
     req.body.fullname ||
     `${req.user.firstName} ${req.user.lastName}`,
@@ -112,8 +217,7 @@ const order = new Order({
   deliveryAddress:
     req.body.deliveryAddress,
 
-  total:
-    req.body.total,
+
 
   paymentMethod:
     req.body.paymentMethod,
@@ -132,6 +236,25 @@ const order = new Order({
 
   items:
     formattedItems,
+    subtotal:
+  req.body.subtotal || req.body.total,
+
+shippingCharge:
+  req.body.shippingCharge || 0,
+
+tax:
+  req.body.tax || 0,
+
+couponCode,
+
+couponType,
+
+couponDiscount,
+
+finalAmount,
+
+total:
+  finalAmount,
 });
 
 
@@ -193,8 +316,36 @@ req.body.items.forEach((item) => {
   });
 
 });
-await order.save();
 
+const savedOrder = await order.save();
+/* =====================================
+   MARK COUPON USED
+===================================== */
+
+if (couponCode) {
+
+  await Coupon.findOneAndUpdate(
+
+    {
+
+      code: couponCode,
+
+    },
+
+    {
+
+      $addToSet: {
+
+        usedBy:
+          req.user._id,
+
+      },
+
+    }
+
+  );
+
+}
 console.log("====================================");
 console.log("ORDER SAVED");
 console.log(
@@ -246,7 +397,7 @@ console.log("ORDER ID:", order._id);
 
     await sendEmail(
       order.email,
-      "🛒 Order Confirmed – EShop",
+      "🛒 Order Confirmed – Odikart",
       `
   <div style="margin:0;padding:0;background:#f4f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
     
@@ -263,8 +414,8 @@ console.log("ORDER ID:", order._id);
 
   <!-- LOGO -->
   <img
-    src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779617751/web-app-manifest-512x512_szlsma.png"
-    alt="EShop Logo"
+    src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1785478585/logo_shi1c4.png"
+    alt="Odikart Logo"
     width="90"
     style="
       display:block;
@@ -280,7 +431,7 @@ console.log("ORDER ID:", order._id);
     font-size:22px;
     color:white;
   ">
-    🛍️ EShop
+    🛍️ Odikart
   </h1>
 
   <p style="
@@ -353,7 +504,13 @@ console.log("ORDER ID:", order._id);
             <tr>
               <td>💰 Total</td>
               <td style="text-align:right;color:#16a34a;font-weight:bold;">
-                ₹${order.total}
+       Subtotal : ₹${order.subtotal}<br>
+Coupon : ${order.couponCode || "None"}<br>
+Discount : -₹${order.couponDiscount}<br>
+Shipping : ₹${order.shippingCharge}<br>
+Tax : ₹${order.tax}<br>
+<hr>
+<b>Grand Total : ₹${order.total}</b>
               </td>
             </tr>
 
@@ -367,7 +524,7 @@ console.log("ORDER ID:", order._id);
             <tr>
               <td>📅 Order Date</td>
               <td style="text-align:right;">
-                ${new Date(order.createdAt).toLocaleString()}
+                ${new Date(savedOrder.createdAt).toLocaleString()}
               </td>
             </tr>
 
@@ -430,7 +587,13 @@ console.log("ORDER ID:", order._id);
               border-top:1px solid #ddd;
             ">
               <span>Total</span>
-              <span>₹${order.total}</span>
+              <span>Subtotal : ₹${order.subtotal}<br>
+Coupon : ${order.couponCode || "None"}<br>
+Discount : -₹${order.couponDiscount}<br>
+Shipping : ₹${order.shippingCharge}<br>
+Tax : ₹${order.tax}<br>
+<hr>
+<b>Grand Total : ₹${order.total}</b></span>
             </div>
 
           </div>
@@ -457,7 +620,7 @@ console.log("ORDER ID:", order._id);
 
         <!-- CTA -->
         <div style="text-align:center;margin:30px 0;">
-          <a href="https://eshop.debasish.xyz/track-order"
+          <a href="https://odikart.in/track-order"
              style="
               background:#6366f1;
               color:white;
@@ -477,14 +640,14 @@ console.log("ORDER ID:", order._id);
         </p>
 
         <p style="text-align:center;margin-top:10px;">
-          ❤️ Thank you for choosing <b>EShop</b>
+          ❤️ Thank you for choosing <b>Odikart</b>
         </p>
 
       </div>
 
       <!-- FOOTER -->
       <div style="background:#f3f4f6;padding:12px;text-align:center;font-size:12px;color:#888;">
-        © ${new Date().getFullYear()} EShop. All rights reserved.
+        © ${new Date().getFullYear()} Odikart. All rights reserved.
       </div>
 
     </div>
@@ -497,7 +660,7 @@ console.log("ORDER ID:", order._id);
       order.phone,
 
       `
-             🛍️ *EShop*
+             🛍️ *Odikart*
        
 
 ✨ *ORDER CONFIRMED SUCCESSFULLY* ✨
@@ -515,7 +678,7 @@ Your order has been placed successfully and is now being processed 🚚
 ${order._id}
 
 📅 *Order Date*  
-${new Date(order.createdAt).toLocaleString("en-IN", {
+${new Date(savedOrder.createdAt).toLocaleString("en-IN", {
   dateStyle: "medium",
   timeStyle: "short",
 })}
@@ -549,7 +712,17 @@ ${order.items
 ━━━━━━━━━━━━━━━━━━━
 
 🧾 *Grand Total*  
-💸 ₹${order.total}
+💸Subtotal:
+₹${order.subtotal}
+
+Coupon:
+${order.couponCode || "None"}
+
+Discount:
+-₹${order.couponDiscount}
+
+Grand Total:
+₹${order.total}
 
 ━━━━━━━━━━━━━━━━━━━
 📍 *DELIVERY ADDRESS*
@@ -575,17 +748,17 @@ You’ll receive another update once your order has been shipped 🚛
 ━━━━━━━━━━━━━━━━━━━
 
 🌐
-https://eshop.debasish.xyz/track-order
+https://odikart.in/track-order
 
 ━━━━━━━━━━━━━━━━━━━
 🆘 *CUSTOMER SUPPORT*
 ━━━━━━━━━━━━━━━━━━━
 
-📧 eshopcustomerinfo@gmail.com
+📧 Odikartcustomerinfo@gmail.com
 
 ━━━━━━━━━━━━━━━━━━━
 
-❤️ Thank you for choosing *EShop*
+❤️ Thank you for choosing *Odikart*
 
 🛒 *Happy Shopping!*
 
@@ -716,6 +889,72 @@ const userId =
     });
   }
 };
+
+
+export const getSingleOrder = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const order = await Order.findById(id)
+
+      .populate({
+        path: "userId",
+        select: "firstName lastName email phone image",
+      })
+
+      .populate({
+        path: "sellerId",
+        select: "firstName lastName email phone sellerInfo.shopName",
+      })
+
+      .populate({
+        path: "courier",
+        select:
+          "name logo website trackingUrl customerCareNumber estimatedDeliveryDays",
+      })
+
+      .populate({
+        path: "items.productId",
+        select:
+          "title slug images price brand category stock",
+      });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+      if (
+      req.user.role !== "admin" &&
+      order.userId._id.toString() !== req.user._id.toString() &&
+      order.sellerId?.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    // 3. Return order
+    res.status(200).json({
+      success: true,
+      order,
+    });
+  } catch (error) {
+
+    console.error("Get Single Order Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+
+  }
+};
+
 /* =====================================
    TRACK ORDER
 ===================================== */
@@ -867,7 +1106,7 @@ if (
 
     const now = new Date();
 
-    const orderDate = new Date(order.createdAt);
+   const orderDate = new Date(order.createdAt);
 
     const diffDays = (now - orderDate) / (1000 * 60 * 60 * 24);
 
@@ -910,6 +1149,7 @@ if (
     validateBeforeSave: false,
   });
 }
+
 const updatedOrder = await Order.findByIdAndUpdate(
   req.params.id,
   {
@@ -934,7 +1174,7 @@ console.log("UPDATED ORDER:", updatedOrder);
 
     await sendEmail(
       updatedOrder.email,
-      "❌ Order Cancelled – EShop",
+      "❌ Order Cancelled – Odikart",
       `
   <div style="
     margin:0;
@@ -962,8 +1202,8 @@ console.log("UPDATED ORDER:", updatedOrder);
 
         <!-- LOGO -->
         <img
-          src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1779617751/web-app-manifest-512x512_szlsma.png"
-          alt="EShop Logo"
+          src="https://res.cloudinary.com/dqyltwn9z/image/upload/v1785478585/logo_shi1c4.png"
+          alt="Odikart Logo"
           width="90"
           style="
             display:block;
@@ -1056,7 +1296,17 @@ console.log("UPDATED ORDER:", updatedOrder);
 
             <tr>
               <td style="padding:8px 0;"><b>💰 Amount</b></td>
-              <td align="right">₹${order.total}</td>
+              <td align="right">Subtotal:
+₹${order.subtotal}
+
+Coupon:
+${order.couponCode || "None"}
+
+Discount:
+-₹${order.couponDiscount}
+
+Grand Total:
+₹${order.total}</td>
             </tr>
 
             <tr>
@@ -1197,7 +1447,7 @@ console.log("UPDATED ORDER:", updatedOrder);
           margin:35px 0 25px;
         ">
           <a
-            href="https://eshop.debasish.xyz/track-order"
+            href="https://odikart.in/track-order"
             style="
               background:#6366f1;
               color:white;
@@ -1228,7 +1478,7 @@ console.log("UPDATED ORDER:", updatedOrder);
           margin-top:18px;
           color:#111827;
         ">
-          — <b>EShop Team</b>
+          — <b>Odikart Team</b>
         </p>
 
       </div>
@@ -1242,7 +1492,7 @@ console.log("UPDATED ORDER:", updatedOrder);
         color:#9ca3af;
         border-top:1px solid #e5e7eb;
       ">
-        © ${new Date().getFullYear()} EShop. All rights reserved.
+        © ${new Date().getFullYear()} Odikart. All rights reserved.
       </div>
 
     </div>
@@ -1254,7 +1504,7 @@ console.log("UPDATED ORDER:", updatedOrder);
       updatedOrder.phone,
 
       `
-             🛍️ *EShop*
+             🛍️ *Odikart*
        
 
 ❌ *ORDER CANCELLED SUCCESSFULLY*
@@ -1340,14 +1590,14 @@ ${
 🆘 *CUSTOMER SUPPORT*
 ━━━━━━━━━━━━━━━━━━━
 
-📧 eshopcustomerinfo@gmail.com
+📧 Odikartcustomerinfo@gmail.com
 
 🌐 Track Orders:
-https://eshop.debasish.xyz/track-order
+https://odikart.in/track-order
 
 ━━━━━━━━━━━━━━━━━━━
 
-❤️ Thank you for shopping with *EShop*
+❤️ Thank you for shopping with *Odikart*
 
 We hope to serve you again soon 🛒
 
@@ -1366,7 +1616,8 @@ We hope to serve you again soon 🛒
       order,
     });
   } catch (error) {
-    console.error("Cancel Order Error:", error);
+   console.error(error);
+console.error(error.stack);
 
     res.status(500).json({
       success: false,
@@ -1376,10 +1627,1071 @@ We hope to serve you again soon 🛒
   }
 };
 
+/* =====================================
+   ORDER STATUS FLOW
+===================================== */
 
+const ORDER_FLOW = {
 
+  "Pending Payment": ["Confirmed", "Cancelled"],
 
+  "Confirmed": ["Processing", "Cancelled"],
 
+  "Processing": ["Packed", "Cancelled"],
+
+  "Packed": ["Ready for Pickup"],
+
+  "Ready for Pickup": ["Shipped"],
+
+  "Shipped": ["In Transit"],
+
+  "In Transit": ["Out for Delivery"],
+
+  "Out for Delivery": ["Delivered"],
+
+  "Delivered": [
+    "Return Requested"
+  ],
+
+  "Return Requested": [
+    "Return Approved",
+    "Return Rejected"
+  ],
+
+  "Return Approved": [
+    "Return Pickup Scheduled"
+  ],
+
+  "Return Pickup Scheduled": [
+    "Return Picked Up"
+  ],
+
+  "Return Picked Up": [
+    "Received by Admin"
+  ],
+
+  "Received by Admin": [
+    "Inspection"
+  ],
+
+  "Inspection": [
+    "Refund Processing",
+    "Return Rejected"
+  ],
+
+  "Refund Processing": [
+    "Refund Completed"
+  ],
+
+  "Refund Completed": [],
+
+  "Return Rejected": [],
+
+  "Cancelled": []
+
+};
+
+export const updateOrderStatus = async (req, res) => {
+  try {
+
+    const { orderId } = req.params;
+
+    const { status, remark } = req.body;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+/* =====================================
+   VALIDATE STATUS FLOW
+===================================== */
+
+const allowedStatus =
+    ORDER_FLOW[order.status] || [];
+
+if (!allowedStatus.includes(status)) {
+
+    return res.status(400).json({
+        success:false,
+        message:`Cannot change status from ${order.status} to ${status}`
+    });
+
+}
+if (
+    status === "Confirmed" &&
+    order.paymentMethod === "Razorpay" &&
+    order.paymentStatus !== "Paid"
+){
+
+    return res.status(400).json({
+        success:false,
+        message:"Payment not completed"
+    });
+
+}
+if(status==="Ready for Pickup"){
+
+    if(order.status!=="Packed"){
+
+        return res.status(400).json({
+            success:false,
+            message:"Order must be Packed first"
+        });
+
+    }
+
+}
+if(status==="Shipped"){
+
+    if(!order.courier){
+
+        return res.status(400).json({
+            success:false,
+            message:"Assign courier before shipping"
+        });
+
+    }
+
+}
+if(status==="Shipped"){
+
+    if(!order.trackingNumber){
+
+        return res.status(400).json({
+            success:false,
+            message:"Tracking number missing"
+        });
+
+    }
+
+}
+if(status==="Out for Delivery"){
+
+    if(order.status!=="In Transit"){
+
+        return res.status(400).json({
+            success:false,
+            message:"Order must be In Transit first"
+        });
+
+    }
+
+}
+if(status==="Delivered"){
+
+    if(order.status!=="Out for Delivery"){
+
+        return res.status(400).json({
+            success:false,
+            message:"Order must be Out for Delivery first"
+        });
+
+    }
+
+    order.deliveredAt=new Date();
+
+    if(order.paymentMethod==="COD"){
+
+        order.paymentStatus="Paid";
+
+    }
+
+}
+if(status==="Return Requested"){
+
+    if(order.status!=="Delivered"){
+
+        return res.status(400).json({
+            success:false,
+            message:"Only delivered orders can be returned"
+        });
+
+    }
+
+}
+if(status==="Refund Processing"){
+
+    if(order.status!=="Returned"){
+
+        return res.status(400).json({
+            success:false,
+            message:"Order must be Returned first"
+        });
+
+    }
+
+}
+const cancellable = [
+    "Pending Payment",
+    "Confirmed",
+    "Processing",
+    "Packed"
+];
+
+if(status==="Cancelled"){
+
+    if(!cancellable.includes(order.status)){
+
+        return res.status(400).json({
+            success:false,
+            message:"This order cannot be cancelled now"
+        });
+
+    }
+
+}
+    /* ==============================
+       VALID ORDER STATUS
+    ============================== */
+
+    const validStatus = [
+      "Pending Payment",
+      "Confirmed",
+      "Processing",
+      "Packed",
+      "Ready for Pickup",
+      "Shipped",
+      "In Transit",
+      "Out for Delivery",
+      "Delivered",
+      "Cancelled",
+      "Return Requested",
+      "Return Approved",
+      "Returned",
+      "Refund Processing",
+      "Refund Completed",
+    ];
+
+    if (!validStatus.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order status",
+      });
+    }
+
+    /* ==============================
+       UPDATE STATUS
+    ============================== */
+
+    order.status = status;
+
+    /* ==============================
+       SPECIAL CASES
+    ============================== */
+
+    if (status === "Delivered") {
+      order.deliveredAt = new Date();
+    }
+
+    if (status === "Cancelled") {
+      order.cancelled = true;
+      order.cancelledAt = new Date();
+      order.cancelledBy = req.user.role;
+    }
+
+    if (status === "Returned") {
+      order.returnedAt = new Date();
+    }
+
+    /* ==============================
+       STATUS HISTORY
+    ============================== */
+
+    order.statusHistory.push({
+      status,
+      date: new Date(),
+      updatedBy: req.user._id,
+      remark: remark || "",
+    });
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Order status updated successfully",
+      order,
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+
+  }
+};
+
+/* =====================================
+   ASSIGN COURIER
+===================================== */
+
+export const assignCourier = async (req, res) => {
+  try {
+
+    const { orderId } = req.params;
+
+    const {
+      courierId,
+      trackingNumber,
+      estimatedDelivery,
+    } = req.body;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    const courier = await Courier.findById(courierId);
+
+    if (!courier) {
+      return res.status(404).json({
+        success: false,
+        message: "Courier not found",
+      });
+    }
+
+    order.courier = courier._id;
+
+    order.courierName = courier.name;
+
+    order.trackingNumber = trackingNumber;
+order.trackingUrl =
+  `${courier.trackingUrl}${trackingNumber}`;
+
+    order.estimatedDelivery =
+      estimatedDelivery;
+
+order.status = "Ready for Pickup";
+    order.statusHistory.push({
+      status: "Ready for Pickup",
+      updatedBy: req.user._id,
+      remark: `Assigned to ${courier.name}`,
+    });
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Courier assigned successfully",
+      order,
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+
+  }
+};
+
+/* =====================================
+   UPDATE TRACKING
+===================================== */
+
+export const updateTracking = async (req, res) => {
+
+  try {
+
+    const { orderId } = req.params;
+
+    const {
+      trackingNumber,
+      trackingUrl,
+    } = req.body;
+
+    const order =
+      await Order.findById(orderId);
+
+    if (!order) {
+
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+
+    }
+
+    order.trackingNumber =
+      trackingNumber;
+
+    order.trackingUrl =
+      trackingUrl;
+
+    await order.save();
+
+    res.status(200).json({
+
+      success: true,
+
+      message:
+        "Tracking updated successfully",
+
+      order,
+
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+
+      success: false,
+
+      message: error.message,
+
+    });
+
+  }
+
+};
+
+/* =====================================
+   CHANGE COURIER
+===================================== */
+
+export const changeCourier = async (req, res) => {
+
+  try {
+
+    const { orderId } = req.params;
+
+    const {
+      courierId,
+      trackingNumber,
+    } = req.body;
+
+    const order =
+      await Order.findById(orderId);
+
+    if (!order) {
+
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+
+    }
+
+    const courier =
+      await Courier.findById(courierId);
+
+    if (!courier) {
+
+      return res.status(404).json({
+        success: false,
+        message: "Courier not found",
+      });
+
+    }
+
+    order.courier = courier._id;
+
+    order.courierName = courier.name;
+
+    order.trackingNumber =
+      trackingNumber;
+
+    order.trackingUrl =
+      courier.trackingUrl +
+      trackingNumber;
+
+    order.statusHistory.push({
+
+      status: order.status,
+
+      updatedBy: req.user._id,
+
+      remark:
+        `Courier changed to ${courier.name}`,
+
+    });
+
+    await order.save();
+
+    res.status(200).json({
+
+      success: true,
+
+      message:
+        "Courier changed successfully",
+
+      order,
+
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+
+      success: false,
+
+      message: error.message,
+
+    });
+
+  }
+
+};
+
+/* =====================================
+   GET COURIER DETAILS OF ORDER
+===================================== */
+
+export const getCourierDetails =
+async (req, res) => {
+
+  try {
+
+    const order =
+      await Order.findById(req.params.orderId)
+        .populate("courier");
+
+    if (!order) {
+
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+
+    }
+
+    res.status(200).json({
+
+      success: true,
+
+      courier: order.courier,
+
+      trackingNumber:
+        order.trackingNumber,
+
+      trackingUrl:
+        order.trackingUrl,
+
+      estimatedDelivery:
+        order.estimatedDelivery,
+
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+
+      success: false,
+
+      message: error.message,
+
+    });
+
+  }
+
+};
+
+export const requestReturn = async (req, res) => {
+  try {
+
+    const { orderId } = req.params;
+    const { reason, comment } = req.body;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    if (order.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    if (order.status !== "Delivered") {
+      return res.status(400).json({
+        success: false,
+        message: "Only delivered orders can be returned"
+      });
+    }
+
+  order.status = "Return Requested";
+
+order.returnDetails.requested = true;
+order.returnDetails.requestedAt = new Date();
+order.returnDetails.reason = reason;
+order.returnDetails.customerComment = comment || "";
+order.returnDetails.images = req.body.images || [];
+order.returnDetails.videos = req.body.videos || [];
+    order.statusHistory.push({
+      status: "Return Requested",
+      updatedBy: req.user._id,
+      remark: comment
+    });
+
+    await order.save();
+
+    res.json({
+      success: true,
+      message: "Return request submitted",
+      order
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+export const approveReturn = async (req, res) => {
+
+  try {
+
+    const order = await Order.findById(req.params.orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success:false,
+        message:"Order not found"
+      });
+    }
+
+    order.status = "Return Approved";
+
+  order.returnDetails.approvedAt = new Date();
+order.returnDetails.sellerRemark = req.body.remark || "";
+
+    order.statusHistory.push({
+      status:"Return Approved",
+      updatedBy:req.user._id,
+      remark:"Return Approved"
+    });
+
+    await order.save();
+
+    res.json({
+      success:true,
+      message:"Return approved",
+      order
+    });
+
+  } catch(error){
+
+    res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+};
+export const rejectReturn = async (req,res)=>{
+
+try{
+
+const order=await Order.findById(req.params.orderId);
+
+if(!order){
+
+return res.status(404).json({
+success:false,
+message:"Order not found"
+});
+
+}
+
+order.status="Delivered";
+
+order.returnDetails.rejectedAt = new Date();
+order.returnDetails.sellerRemark = req.body.remark || "";
+
+order.statusHistory.push({
+
+status:"Return Rejected",
+
+updatedBy:req.user._id,
+
+remark:req.body.remark
+
+});
+
+await order.save();
+
+res.json({
+
+success:true,
+
+message:"Return rejected",
+
+order
+
+});
+
+}catch(error){
+
+res.status(500).json({
+
+success:false,
+
+message:error.message
+
+});
+
+}
+
+}
+export const assignReturnCourier = async(req,res)=>{
+
+try{
+
+const{
+
+courierId,
+
+trackingNumber,
+
+estimatedDelivery
+
+}=req.body;
+
+const order=await Order.findById(req.params.orderId)
+.populate("courier");
+
+if(!order){
+
+return res.status(404).json({
+
+success:false,
+
+message:"Order not found"
+
+});
+
+}
+
+const courier=await Courier.findById(courierId);
+
+if(!courier){
+
+return res.status(404).json({
+
+success:false,
+
+message:"Courier not found"
+
+});
+
+}
+
+order.courier=courier._id;
+
+order.courierName=courier.name;
+
+order.trackingNumber=trackingNumber;
+
+order.trackingUrl=
+`${courier.trackingUrl}${trackingNumber}`;
+
+order.estimatedDelivery=estimatedDelivery;
+
+order.status="Return Pickup Scheduled";
+order.returnDetails.pickupScheduledAt = new Date();
+order.statusHistory.push({
+
+status:"Return Pickup Scheduled",
+
+updatedBy:req.user._id,
+
+remark:"Courier Assigned"
+
+});
+
+await order.save();
+
+res.json({
+
+success:true,
+
+message:"Courier assigned",
+
+order
+
+});
+
+}catch(error){
+
+res.status(500).json({
+
+success:false,
+
+message:error.message
+
+});
+
+}
+
+}
+export const returnPickedUp = async(req,res)=>{
+
+try{
+
+const order=await Order.findById(req.params.orderId);
+
+if(!order){
+
+return res.status(404).json({
+
+success:false,
+
+message:"Order not found"
+
+});
+
+}
+
+order.status="Return Picked Up";
+order.returnDetails.pickedUpAt = new Date();
+order.statusHistory.push({
+
+status:"Return Picked Up",
+
+updatedBy:req.user._id,
+
+remark:"Courier picked the product"
+
+});
+
+await order.save();
+
+res.json({
+
+success:true,
+
+message:"Pickup completed",
+
+order
+
+});
+
+}catch(error){
+
+res.status(500).json({
+
+success:false,
+
+message:error.message
+
+});
+
+}
+
+}
+export const receiveReturnedProduct=async(req,res)=>{
+
+try{
+
+const order=await Order.findById(req.params.orderId);
+
+if(!order){
+
+return res.status(404).json({
+
+success:false,
+
+message:"Order not found"
+
+});
+
+}
+
+order.status="Received by Admin";
+order.returnDetails.receivedByAdminAt = new Date();
+order.statusHistory.push({
+
+status:"Received by Admin",
+
+updatedBy:req.user._id,
+
+remark:"Product received"
+
+});
+
+await order.save();
+
+res.json({
+
+success:true,
+
+message:"Product received",
+
+order
+
+});
+
+}catch(error){
+
+res.status(500).json({
+
+success:false,
+
+message:error.message
+
+});
+
+}
+
+}
+export const inspectReturnedProduct=async(req,res)=>{
+
+try{
+
+const{
+
+inspectionStatus,
+
+remark
+
+}=req.body;
+
+const order=await Order.findById(req.params.orderId);
+
+if(!order){
+
+return res.status(404).json({
+
+success:false,
+
+message:"Order not found"
+
+});
+
+}
+
+if(inspectionStatus==="Passed"){
+
+order.status = "Refund Processing";
+
+order.returnDetails.refundStartedAt = new Date();
+
+}else{
+
+order.status="Return Rejected";
+
+}
+
+order.statusHistory.push({
+
+status:order.status,
+
+updatedBy:req.user._id,
+
+remark
+
+});
+
+await order.save();
+
+res.json({
+
+success:true,
+
+message:"Inspection completed",
+
+order
+
+});
+
+}catch(error){
+
+res.status(500).json({
+
+success:false,
+
+message:error.message
+
+});
+
+}
+
+}
+export const completeRefund=async(req,res)=>{
+
+try{
+
+const order=await Order.findById(req.params.orderId);
+
+if(!order){
+
+return res.status(404).json({
+
+success:false,
+
+message:"Order not found"
+
+});
+
+}
+
+order.status = "Refund Completed";
+
+order.returnDetails.refundedAt = new Date();
+
+order.returnDetails.refundAmount = order.total;
+order.paymentStatus="Refunded";
+
+order.refundStatus="Completed";
+
+order.refundedAt=new Date();
+
+order.statusHistory.push({
+
+status:"Refund Completed",
+
+updatedBy:req.user._id,
+
+remark:"Refund Successful"
+
+});
+
+await order.save();
+
+res.json({
+
+success:true,
+
+message:"Refund completed",
+
+order
+
+});
+
+}catch(error){
+
+res.status(500).json({
+
+success:false,
+
+message:error.message
+
+});
+
+}
+
+}
 /* =====================================
    SELLER PRODUCT ANALYTICS
 ===================================== */
@@ -1566,4 +2878,3 @@ async (req, res) => {
     });
   }
 };
-

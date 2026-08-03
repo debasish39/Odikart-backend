@@ -11,7 +11,10 @@ import cartRoutes from "./routes/cartRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
-
+import couponRoutes from "./routes/couponRoutes.js";
+import categoryRoutes from "./routes/categoryRoutes.js";
+import brandRoutes from "./routes/brandRoutes.js";
+import courierRoutes from "./routes/courierRoutes.js";
 dotenv.config();
 
 const app = express();
@@ -71,10 +74,23 @@ app.use(
 
 app.use(
   "/api",
+  categoryRoutes
+);
+
+app.use(
+  "/api",
+  brandRoutes
+);
+
+app.use("/api", courierRoutes);
+
+app.use(
+  "/api",
   wishlistRoutes
 );
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/coupons", couponRoutes);
 /* =====================================
    SERVER
 ===================================== */
@@ -88,4 +104,4 @@ app.listen(PORT, () =>
     `Server running on port ${PORT}`
   )
 
-);
+);      
