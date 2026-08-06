@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "nodemon server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+        "migrate:categories": "node scripts/migrateProductCategories.js"
+
   },
   "dependencies": {
     "@clerk/clerk-sdk-node": "^4.13.23",

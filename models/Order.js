@@ -57,100 +57,204 @@ const orderSchema = new mongoose.Schema(
      DELIVERY ADDRESS
   ===================================== */
 
-  deliveryAddress: {
+  /* =====================================
+   DELIVERY ADDRESS
+===================================== */
 
-    street: String,
+deliveryAddress: {
 
-    city: String,
+  customer: {
+    fullName: {
+      type: String,
+      required: true,
+    },
 
-    state: String,
+    phone: {
+      type: String,
+      required: true,
+    },
 
-    postcode: String,
+    alternatePhone: {
+      type: String,
+      default: "",
+    },
 
-    country: String,
-
+    email: {
+      type: String,
+      default: "",
+    },
   },
 
+  address: {
+    addressLine1: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    addressLine2: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    landmark: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    area: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    city: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    district: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+
+    state: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    postalCode: {
+  type: String,
+  required: true,
+  match: /^[1-9][0-9]{5}$/
+},
+
+    country: {
+      type: String,
+      default: "India",
+      trim: true,
+    },
+  },
+
+  location: {
+    latitude: Number,
+
+    longitude: Number,
+
+    formattedAddress: String,
+
+    googlePlaceId: String,
+
+    plusCode: String,
+
+    mapUrl: String,
+  },
+
+  preference: {
+    addressType: {
+      type: String,
+      enum: ["Home", "Office", "Other"],
+      default: "Home",
+    },
+
+    preferredDeliveryTime: {
+      type: String,
+      enum: ["", "Morning", "Afternoon", "Evening", "Anytime"],
+      default: "",
+    },
+
+    deliveryInstructions: {
+      type: String,
+      default: "",
+    },
+
+    isDefault: {
+      type: Boolean,
+      default: false,
+    },
+  },
+
+},
   /* =====================================
      PRICE DETAILS
   ===================================== */
-
+pricing: {
   subtotal: {
     type: Number,
-    default: 0,
     required: true,
+    default: 0
   },
 
   shippingCharge: {
     type: Number,
-    default: 0,
+    default: 0
   },
 
   tax: {
     type: Number,
-    default: 0,
+    default: 0
   },
 
   couponCode: {
     type: String,
-    default: "",
-    uppercase: true,
+    default: ""
   },
 
   couponDiscount: {
     type: Number,
-    default: 0,
+    default: 0
   },
 
   couponType: {
     type: String,
     enum: ["", "FIXED", "PERCENTAGE"],
-    default: "",
+    default: ""
   },
 
   total: {
     type: Number,
-    default: 0,
     required: true,
-  },
-
+    default: 0
+  }
+},
   /* =====================================
      MARKETPLACE REVENUE
   ===================================== */
-
+marketplace: {
   commissionAmount: {
     type: Number,
-    default: 0,
+    default: 0
   },
 
   sellerAmount: {
     type: Number,
-    default: 0,
+    default: 0
   },
 
   platformProfit: {
     type: Number,
-    default: 0,
-  },
+    default: 0
+  }
+},
 
   /* =====================================
      PAYMENT
   ===================================== */
-
-  paymentMethod: {
+payment: {
+  method: {
     type: String,
     enum: ["COD", "Razorpay"],
     default: "COD",
   },
 
-  paymentStatus: {
+  status: {
     type: String,
-    enum: [
-      "Pending",
-      "Paid",
-      "Failed",
-      "Refunded",
-    ],
+    enum: ["Pending", "Paid", "Failed", "Refunded"],
     default: "Pending",
     index: true,
   },
@@ -160,60 +264,91 @@ const orderSchema = new mongoose.Schema(
     default: "",
   },
 
-  paymentDate: {
-    type: Date,
-    default: null,
-  },
-
-  /* =====================================
-     RAZORPAY
-  ===================================== */
-
-  razorpayOrderId: {
+  paymentFailureReason: {
     type: String,
     default: "",
   },
 
-  razorpayPaymentId: {
-    type: String,
-    default: "",
-  },
+  paymentDate: Date,
 
-  razorpaySignature: {
-    type: String,
-    default: "",
+  gateway: {
+    orderId: String,
+    paymentId: String,
+    signature: String,
   },
+},
+  // /* =====================================
+  //    RAZORPAY
+  // ===================================== */
+
+  // razorpayOrderId: {
+  //   type: String,
+  //   default: "",
+  // },
+
+  // razorpayPaymentId: {
+  //   type: String,
+  //   default: "",
+  // },
+
+  // razorpaySignature: {
+  //   type: String,
+  //   default: "",
+  // },
 
   /* =====================================
      REFUND
   ===================================== */
 
-  refundId: {
-    type: String,
-    default: "",
-  },
-
-  refundStatus: {
+refund: {
+  status: {
     type: String,
     enum: [
       "NotRequested",
       "Processing",
       "Completed",
-      "Failed",
+      "Failed"
     ],
-    default: "NotRequested",
+    default: "NotRequested"
   },
 
-  refundAmount: {
+  amount: {
     type: Number,
-    default: 0,
+    default: 0
+  },
+
+  refundId: {
+    type: String,
+    default: ""
+  },
+
+  refundMethod: {
+    type: String,
+    enum: [
+      "",
+      "Razorpay",
+      "UPI",
+      "Bank Transfer",
+      "Cash"
+    ],
+    default: ""
+  },
+
+  refundTransactionId: {
+    type: String,
+    default: ""
   },
 
   refundedAt: {
     type: Date,
-    default: null,
+    default: null
   },
 
+  remark: {
+    type: String,
+    default: ""
+  }
+},
   /* =====================================
      ORDER STATUS
   ===================================== */
@@ -303,7 +438,15 @@ status: {
         type: Boolean,
         default: false,
     },
-
+resolution: {
+  type: String,
+  enum: [
+    "Refund",
+    "Replacement",
+    "Exchange"
+  ],
+  default: "Refund",
+},
     requestedAt: Date,
 
     approvedAt: Date,
@@ -326,7 +469,20 @@ status: {
         type: String,
         default: "",
     },
-
+reasonType: {
+  type: String,
+  enum: [
+    "Damaged",
+    "Wrong Product",
+    "Defective",
+    "Missing Item",
+    "Expired",
+    "Quality Issue",
+    "Changed Mind",
+    "Other"
+  ],
+  default: "Other"
+},
     customerComment: {
         type: String,
         default: "",
@@ -362,89 +518,88 @@ status: {
   ===================================== */
 
   items: [
+  {
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product"
+    },
 
-    {
+    sku: String,
 
-      productId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Product",
-        required: true,
-      },
+    title: String,
 
-      title: {
-        type: String,
-        required: true,
-      },
+    slug: String,
 
-      image: {
-        type: String,
-        default: "",
-      },
+    image: String,
 
-      price: {
-        type: Number,
-        required: true,
-      },
+    brand: String,
 
-      quantity: {
-        type: Number,
-        required: true,
-        min: 1,
-      },
+    category: String,
 
-    }
+    sellerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    },
 
-  ],
+    price: Number,
+
+    quantity: Number,
+
+    tax: Number,
+
+    discount: Number,
+
+    total: Number
+  }
+],
 
   /* =====================================
      COURIER
   ===================================== */
+shipping: {
 
   courier: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Courier",
-    default: null,
+    default: null
   },
 
   courierName: {
     type: String,
-    default: "",
+    default: ""
   },
 
   trackingNumber: {
-    type: String,
-    default: "",
-    index: true,
-  },
+  type: String,
+  default: "",
+  index: true,
+},
 
   trackingUrl: {
     type: String,
-    default: "",
+    default: ""
   },
 
-  estimatedDelivery: {
-    type: Date,
-    default: null,
-  },
+  estimatedDelivery: Date,
 
-  deliveredAt: {
-    type: Date,
-    default: null,
-  },
+  shippedAt: Date,
+
+  deliveredAt: Date
+},
+ 
 
   /* =====================================
      CANCELLATION
   ===================================== */
 
+ cancellation: {
+
   cancelled: {
     type: Boolean,
-    default: false,
+    default: false
   },
 
-  cancelledAt: {
-    type: Date,
-    default: null,
-  },
+  cancelledAt: Date,
 
   cancelledBy: {
     type: String,
@@ -452,17 +607,34 @@ status: {
       "",
       "Customer",
       "Seller",
-      "Admin",
+      "Admin"
     ],
-    default: "",
+    default: ""
   },
 
-  cancelReason: {
+  reason: {
     type: String,
-    default: "",
-  },
-
+    default: ""
+  }
 },
+timeline: {
+
+  confirmedAt: Date,
+
+  packedAt: Date,
+
+  shippedAt: Date,
+
+  outForDeliveryAt: Date,
+
+  deliveredAt: Date,
+
+  cancelledAt: Date,
+
+  refundedAt: Date
+},
+},
+
 {
   timestamps: true,
 }

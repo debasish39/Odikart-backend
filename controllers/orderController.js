@@ -200,63 +200,96 @@ finalAmount = Math.max(
 
 }
 const order = new Order({
-  userId: req.user._id,
-  orderNumber: generateOrderNumber(),
-  fullname:
-    req.body.fullname ||
-    `${req.user.firstName} ${req.user.lastName}`,
+    userId: req.user._id,
+    orderNumber: generateOrderNumber(),
 
-  email:
-    req.body.email ||
-    req.user.email,
+    fullname:
+        req.body.fullname ||
+        `${req.user.firstName} ${req.user.lastName}`,
 
-  phone:
-    req.body.phone ||
-    req.user.phone,
+    email:
+        req.body.email ||
+        req.user.email,
 
-  deliveryAddress:
-    req.body.deliveryAddress,
+    phone:
+        req.body.phone ||
+        req.user.phone,
 
+    deliveryAddress: {
+        customer: {
+            fullName:
+                req.body.deliveryAddress.customer.fullName,
 
+            phone:
+                req.body.deliveryAddress.customer.phone,
 
-  paymentMethod:
-    req.body.paymentMethod,
+            alternatePhone:
+                req.body.deliveryAddress.customer.alternatePhone || "",
 
-  paymentStatus:
-    req.body.paymentStatus,
+            email:
+                req.body.deliveryAddress.customer.email ||
+                req.user.email,
+        },
 
-  razorpayOrderId:
-    req.body.razorpayOrderId || "",
+        address: {
+            addressLine1:
+                req.body.deliveryAddress.address.addressLine1,
 
-  razorpayPaymentId:
-    req.body.razorpayPaymentId || "",
+            addressLine2:
+                req.body.deliveryAddress.address.addressLine2 || "",
 
-  razorpaySignature:
-    req.body.razorpaySignature || "",
+            landmark:
+                req.body.deliveryAddress.address.landmark || "",
 
-  items:
-    formattedItems,
-    subtotal:
-  req.body.subtotal || req.body.total,
+            area:
+                req.body.deliveryAddress.address.area,
 
-shippingCharge:
-  req.body.shippingCharge || 0,
+            city:
+                req.body.deliveryAddress.address.city,
 
-tax:
-  req.body.tax || 0,
+            district:
+                req.body.deliveryAddress.address.district,
 
-couponCode,
+            state:
+                req.body.deliveryAddress.address.state,
 
-couponType,
+            postalCode:
+                req.body.deliveryAddress.address.postalCode,
 
-couponDiscount,
+            country:
+                req.body.deliveryAddress.address.country || "India",
+        },
 
-finalAmount,
+        location:
+            req.body.deliveryAddress.location || {},
 
-total:
-  finalAmount,
+        preference:
+            req.body.deliveryAddress.preference || {},
+    },
+
+    pricing: {
+        subtotal: req.body.subtotal,
+        shippingCharge: req.body.shippingCharge || 0,
+        tax: req.body.tax || 0,
+        couponCode,
+        couponDiscount,
+        couponType,
+        total: finalAmount,
+    },
+
+    payment: {
+        method: req.body.paymentMethod || "COD",
+        status: req.body.paymentStatus || "Pending",
+
+        gateway: {
+            orderId: req.body.razorpayOrderId || "",
+            paymentId: req.body.razorpayPaymentId || "",
+            signature: req.body.razorpaySignature || "",
+        },
+    },
+
+    items: formattedItems,
 });
-
 
 console.log("ORDER CREATED:", order);
 
@@ -350,15 +383,15 @@ console.log("====================================");
 console.log("ORDER SAVED");
 console.log(
   "RAZORPAY ORDER ID:",
-  order.razorpayOrderId
+  order.payment.gateway.orderId
 );
 console.log(
   "RAZORPAY PAYMENT ID:",
-  order.razorpayPaymentId
+  order.payment.gateway.paymentId
 );
 console.log(
   "RAZORPAY SIGNATURE:",
-  order.razorpaySignature
+  order.payment.gateway.signature
 );
 console.log("====================================");
 console.log("====================================");
@@ -504,20 +537,20 @@ console.log("ORDER ID:", order._id);
             <tr>
               <td>💰 Total</td>
               <td style="text-align:right;color:#16a34a;font-weight:bold;">
-       Subtotal : ₹${order.subtotal}<br>
-Coupon : ${order.couponCode || "None"}<br>
-Discount : -₹${order.couponDiscount}<br>
-Shipping : ₹${order.shippingCharge}<br>
-Tax : ₹${order.tax}<br>
+       Subtotal : ₹${order.pricing.subtotal}<br>
+Coupon : ${order.pricing.couponCode || "None"}<br>
+Discount : -₹${order.pricing.couponDiscount}<br>
+Shipping : ₹${order.pricing.shippingCharge}<br>
+Tax : ₹${order.pricing.tax}<br>
 <hr>
-<b>Grand Total : ₹${order.total}</b>
+<b>Grand Total : ₹${order.pricing.total}</b>
               </td>
             </tr>
 
             <tr>
               <td>💳 Payment</td>
               <td style="text-align:right;">
-                ${order.paymentMethod} (${order.paymentStatus})
+                ${order.payment.method} (${order.payment.status})
               </td>
             </tr>
 
@@ -587,13 +620,13 @@ Tax : ₹${order.tax}<br>
               border-top:1px solid #ddd;
             ">
               <span>Total</span>
-              <span>Subtotal : ₹${order.subtotal}<br>
-Coupon : ${order.couponCode || "None"}<br>
-Discount : -₹${order.couponDiscount}<br>
-Shipping : ₹${order.shippingCharge}<br>
-Tax : ₹${order.tax}<br>
+              <span>Subtotal : ₹${order.pricing.subtotal}<br>
+Coupon : ${order.pricing.couponCode || "None"}<br>
+Discount : -₹${order.pricing.couponDiscount}<br>
+Shipping : ₹${order.pricing.shippingCharge}<br>
+Tax : ₹${order.pricing.tax}<br>
 <hr>
-<b>Grand Total : ₹${order.total}</b></span>
+<b>Grand Total : ₹${order.pricing.total}</b></span>
             </div>
 
           </div>
@@ -612,9 +645,15 @@ Tax : ₹${order.tax}<br>
             font-size:14px;
             color:#555;
           ">
-            ${order.deliveryAddress?.street || ""}<br/>
-            ${order.deliveryAddress?.state || ""} - ${order.deliveryAddress?.postcode || ""}<br/>
-            ${order.deliveryAddress?.country || ""}
+           ${order.deliveryAddress.address.addressLine1}<br/>
+${order.deliveryAddress.address.addressLine2 || ""}<br/>
+${order.deliveryAddress.address.landmark || ""}<br/>
+${order.deliveryAddress.address.area}<br/>
+${order.deliveryAddress.address.city},
+${order.deliveryAddress.address.district}<br/>
+${order.deliveryAddress.address.state} -
+${order.deliveryAddress.address.postalCode}<br/>
+${order.deliveryAddress.address.country}
           </div>
         </div>
 
@@ -687,10 +726,10 @@ ${new Date(savedOrder.createdAt).toLocaleString("en-IN", {
 🟢 ${order.status}
 
 💳 *Payment Method*  
-${order.paymentMethod}
+${order.payment.method}
 
 💵 *Payment Status*  
-🟢 ${order.paymentStatus}
+🟢 ${order.payment.status}
 
 ━━━━━━━━━━━━━━━━━━━
 🛒 *ITEMS ORDERED*
@@ -713,28 +752,40 @@ ${order.items
 
 🧾 *Grand Total*  
 💸Subtotal:
-₹${order.subtotal}
+₹${order.pricing.subtotal}
 
 Coupon:
-${order.couponCode || "None"}
+${order.pricing.couponCode || "None"}
 
 Discount:
--₹${order.couponDiscount}
+-₹${order.pricing.couponDiscount}
 
 Grand Total:
-₹${order.total}
+₹${order.pricing.total}
 
 ━━━━━━━━━━━━━━━━━━━
 📍 *DELIVERY ADDRESS*
 ━━━━━━━━━━━━━━━━━━━
 
-🏠 ${order.deliveryAddress?.street || ""}
+👤 ${order.deliveryAddress.customer.fullName}
 
-🌍 ${order.deliveryAddress?.state || ""}
-- ${order.deliveryAddress?.postcode || ""}
+📞 ${order.deliveryAddress.customer.phone}
 
-🇮🇳 ${order.deliveryAddress?.country || ""}
+🏠 ${order.deliveryAddress.address.addressLine1}
 
+${order.deliveryAddress.address.addressLine2 || ""}
+
+📍 ${order.deliveryAddress.address.area}
+
+🏙 ${order.deliveryAddress.address.city}
+
+🏛 ${order.deliveryAddress.address.district}
+
+🗺 ${order.deliveryAddress.address.state}
+
+📮 ${order.deliveryAddress.address.postalCode}
+
+🇮🇳 ${order.deliveryAddress.address.country}
 ━━━━━━━━━━━━━━━━━━━
 🚚 *SHIPPING UPDATE*
 ━━━━━━━━━━━━━━━━━━━
@@ -908,11 +959,11 @@ export const getSingleOrder = async (req, res) => {
         select: "firstName lastName email phone sellerInfo.shopName",
       })
 
-      .populate({
-        path: "courier",
-        select:
-          "name logo website trackingUrl customerCareNumber estimatedDeliveryDays",
-      })
+     .populate({
+  path: "shipping.courier",
+  select:
+    "name logo website trackingUrl customerCareNumber estimatedDeliveryDays",
+})
 
       .populate({
         path: "items.productId",
@@ -1040,9 +1091,9 @@ console.log("ORDER:", order);
 console.log("USER:", req.user);
 console.log("====================================");
 
-console.log("PAYMENT METHOD:", order.paymentMethod);
-console.log("PAYMENT STATUS:", order.paymentStatus);
-console.log("PAYMENT ID:", order.razorpayPaymentId);
+console.log("PAYMENT METHOD:", order.payment.method);
+console.log("PAYMENT STATUS:", order.payment.status);
+console.log("PAYMENT ID:", order.payment.gateway.paymentId);
     /* =====================================
        ORDER NOT FOUND
     ===================================== */
@@ -1124,26 +1175,26 @@ if (
 
  console.log("UPDATING ORDER STATUS...");
 if (
-  order.paymentMethod === "Razorpay" &&
-  order.paymentStatus === "Paid" &&
-  order.razorpayPaymentId
+  order.payment.method === "Razorpay" &&
+  order.payment.status === "Paid" &&
+  order.payment.gateway.paymentId
 ) {
 
   console.log("STARTING REFUND");
 
   const refund = await razorpay.payments.refund(
-    order.razorpayPaymentId,
+    order.payment.gateway.paymentId,
     {
-      amount: Math.round(order.total * 100),
+      amount: Math.round(order.pricing.total * 100),
     }
   );
 
   console.log("REFUND SUCCESS:", refund);
 
-  order.paymentStatus = "Refunded";
+  order.payment.status = "Refunded";
 
-  order.refundId = refund.id;
- order.refundStatus =
+  order.refund.refundId = refund.id;
+ order.refund.status =
     "Completed";
    await order.save({
     validateBeforeSave: false,
@@ -1252,7 +1303,7 @@ console.log("UPDATED ORDER:", updatedOrder);
         </p>
 
         ${
-          order.paymentStatus === "Paid"
+          order.payment.status === "Paid"
             ? `
             <div style="
               background:#ecfdf5;
@@ -1297,22 +1348,22 @@ console.log("UPDATED ORDER:", updatedOrder);
             <tr>
               <td style="padding:8px 0;"><b>💰 Amount</b></td>
               <td align="right">Subtotal:
-₹${order.subtotal}
+₹${order.pricing.subtotal}
 
 Coupon:
-${order.couponCode || "None"}
+${order.pricing.couponCode || "None"}
 
 Discount:
--₹${order.couponDiscount}
+-₹${order.pricing.couponDiscount}
 
 Grand Total:
-₹${order.total}</td>
+₹${order.pricing.total}</td>
             </tr>
 
             <tr>
               <td style="padding:8px 0;"><b>💳 Payment</b></td>
               <td align="right">
-                ${order.paymentMethod} (${order.paymentStatus})
+                ${order.payment.method} (${order.payment.status})
               </td>
             </tr>
 
@@ -1432,7 +1483,7 @@ Grand Total:
                     color:#111827;
                   "
                 >
-                  ₹${order.total}
+                  ₹${order.pricing.total}
                 </td>
               </tr>
             </table>
@@ -1532,10 +1583,10 @@ ${new Date().toLocaleString("en-IN", {
 🔴 Cancelled
 
 💳 *Payment Method*  
-${order.paymentMethod}
+${order.payment.method}
 
 💵 *Payment Status*  
-${order.paymentStatus}
+${order.payment.status}
 
 ━━━━━━━━━━━━━━━━━━━
 🛒 *CANCELLED ITEMS*
@@ -1557,21 +1608,21 @@ ${order.items
 ━━━━━━━━━━━━━━━━━━━
 
 🧾 *Total Amount*  
-💸 ₹${order.total}
+💸 ₹${order.pricing.total}
 
 ━━━━━━━━━━━━━━━━━━━
 💳 *REFUND INFORMATION*
 ━━━━━━━━━━━━━━━━━━━
 
 ${
-  order.paymentStatus === "Paid"
+  order.payment.status === "Paid"
     ? `✅ Your refund has been initiated successfully.
 
 ⏳ Expected refund time:
 5 - 7 business days.
 
 💰 Refund Amount:
-₹${order.total}`
+₹${order.pricing.total}`
     : `ℹ️ No payment was captured for this order.`
 }
 
@@ -1579,12 +1630,25 @@ ${
 📍 *DELIVERY ADDRESS*
 ━━━━━━━━━━━━━━━━━━━
 
-🏠 ${order.deliveryAddress?.street || ""}
+👤 ${order.deliveryAddress.customer.fullName}
 
-🌍 ${order.deliveryAddress?.state || ""}
-- ${order.deliveryAddress?.postcode || ""}
+📞 ${order.deliveryAddress.customer.phone}
 
-🇮🇳 ${order.deliveryAddress?.country || ""}
+🏠 ${order.deliveryAddress.address.addressLine1}
+
+${order.deliveryAddress.address.addressLine2 || ""}
+
+📍 ${order.deliveryAddress.address.area}
+
+🏙 ${order.deliveryAddress.address.city}
+
+🏛 ${order.deliveryAddress.address.district}
+
+🗺 ${order.deliveryAddress.address.state}
+
+📮 ${order.deliveryAddress.address.postalCode}
+
+🇮🇳 ${order.deliveryAddress.address.country}
 
 ━━━━━━━━━━━━━━━━━━━
 🆘 *CUSTOMER SUPPORT*
@@ -1723,8 +1787,8 @@ if (!allowedStatus.includes(status)) {
 }
 if (
     status === "Confirmed" &&
-    order.paymentMethod === "Razorpay" &&
-    order.paymentStatus !== "Paid"
+    order.payment.method === "Razorpay" &&
+    order.payment.status !== "Paid"
 ){
 
     return res.status(400).json({
@@ -1747,7 +1811,7 @@ if(status==="Ready for Pickup"){
 }
 if(status==="Shipped"){
 
-    if(!order.courier){
+    if(!order.shipping.courier){
 
         return res.status(400).json({
             success:false,
@@ -1759,7 +1823,7 @@ if(status==="Shipped"){
 }
 if(status==="Shipped"){
 
-    if(!order.trackingNumber){
+    if(!order.shipping.trackingNumber){
 
         return res.status(400).json({
             success:false,
@@ -1794,9 +1858,9 @@ if(status==="Delivered"){
 
     order.deliveredAt=new Date();
 
-    if(order.paymentMethod==="COD"){
+    if(order.payment.method==="COD"){
 
-        order.paymentStatus="Paid";
+        order.payment.status="Paid";
 
     }
 
@@ -1959,26 +2023,27 @@ export const assignCourier = async (req, res) => {
       });
     }
 
-    order.courier = courier._id;
+order.shipping.courier = courier._id;
 
-    order.courierName = courier.name;
+order.shipping.courierName = courier.name;
 
-    order.trackingNumber = trackingNumber;
-order.trackingUrl =
+order.shipping.trackingNumber = trackingNumber;
+
+order.shipping.trackingUrl =
   `${courier.trackingUrl}${trackingNumber}`;
 
-    order.estimatedDelivery =
-      estimatedDelivery;
+order.shipping.estimatedDelivery =
+  estimatedDelivery;
 
 order.status = "Ready for Pickup";
-    order.statusHistory.push({
-      status: "Ready for Pickup",
-      updatedBy: req.user._id,
-      remark: `Assigned to ${courier.name}`,
-    });
 
-    await order.save();
+order.statusHistory.push({
+  status: "Ready for Pickup",
+  updatedBy: req.user._id,
+  remark: `Assigned to ${courier.name}`,
+});
 
+await order.save();
     res.status(200).json({
       success: true,
       message: "Courier assigned successfully",
@@ -2022,10 +2087,10 @@ export const updateTracking = async (req, res) => {
 
     }
 
-    order.trackingNumber =
+    order.shipping.trackingNumber =
       trackingNumber;
 
-    order.trackingUrl =
+    order.shipping.trackingUrl =
       trackingUrl;
 
     await order.save();
@@ -2094,14 +2159,14 @@ export const changeCourier = async (req, res) => {
 
     }
 
-    order.courier = courier._id;
+    order.shipping.courier = courier._id;
 
-    order.courierName = courier.name;
+    order.shipping.courierName = courier.name;
 
-    order.trackingNumber =
+    order.shipping.trackingNumber =
       trackingNumber;
 
-    order.trackingUrl =
+    order.shipping.trackingUrl =
       courier.trackingUrl +
       trackingNumber;
 
@@ -2169,16 +2234,16 @@ async (req, res) => {
 
       success: true,
 
-      courier: order.courier,
+      courier: order.shipping.courier,
 
       trackingNumber:
-        order.trackingNumber,
+        order.shipping.trackingNumber,
 
       trackingUrl:
-        order.trackingUrl,
+        order.shipping.trackingUrl,
 
       estimatedDelivery:
-        order.estimatedDelivery,
+        order.shipping.estimatedDelivery,
 
     });
 
@@ -2397,16 +2462,16 @@ message:"Courier not found"
 
 }
 
-order.courier=courier._id;
+order.shipping.courier=courier._id;
 
-order.courierName=courier.name;
+order.shipping.courierName=courier.name;
 
-order.trackingNumber=trackingNumber;
+order.shipping.trackingNumber=trackingNumber;
 
-order.trackingUrl=
+order.shipping.trackingUrl=
 `${courier.trackingUrl}${trackingNumber}`;
 
-order.estimatedDelivery=estimatedDelivery;
+order.shipping.estimatedDelivery=estimatedDelivery;
 
 order.status="Return Pickup Scheduled";
 order.returnDetails.pickupScheduledAt = new Date();
@@ -2628,7 +2693,7 @@ message:error.message
 }
 
 }
-export const completeRefund=async(req,res)=>{
+export const completeRefund = async (req,res)=>{
 
 try{
 
@@ -2646,16 +2711,45 @@ message:"Order not found"
 
 }
 
-order.status = "Refund Completed";
+if(order.status!=="Refund Processing"){
 
-order.returnDetails.refundedAt = new Date();
+return res.status(400).json({
 
-order.returnDetails.refundAmount = order.total;
-order.paymentStatus="Refunded";
+success:false,
 
-order.refundStatus="Completed";
+message:"Refund not started"
 
-order.refundedAt=new Date();
+});
+
+}
+
+if(order.payment.method==="Razorpay"){
+
+const refund=await razorpay.payments.refund(
+
+order.payment.gateway.paymentId,
+
+{
+
+amount:Math.round(order.pricing.total*100)
+
+}
+
+);
+
+order.refund.refundId=refund.id;
+
+}
+
+order.payment.status="Refunded";
+
+order.refund.status="Completed";
+
+order.refund.amount=order.pricing.total;
+
+order.refund.refundedAt=new Date();
+
+order.status="Refund Completed";
 
 order.statusHistory.push({
 
@@ -2663,7 +2757,7 @@ status:"Refund Completed",
 
 updatedBy:req.user._id,
 
-remark:"Refund Successful"
+remark:"Refund transferred"
 
 });
 
@@ -2691,7 +2785,7 @@ message:error.message
 
 }
 
-}
+};
 /* =====================================
    SELLER PRODUCT ANALYTICS
 ===================================== */

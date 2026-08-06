@@ -15,6 +15,7 @@ export const createProduct = async (req, res) => {
     console.log("REQ BODY:", req.body);
 
     console.log("REQ FILES:", req.files);
+    
     const {
       title,
       description,
@@ -54,6 +55,9 @@ export const createProduct = async (req, res) => {
       metaKeywords,
     } = req.body;
 
+console.log("Category:", category);
+console.log("SubCategory:", subCategory);
+console.log("Is Valid:", mongoose.Types.ObjectId.isValid(category));
     /* =====================================
        VALIDATION
     ===================================== */
@@ -70,6 +74,17 @@ export const createProduct = async (req, res) => {
         message: "Please fill all required fields",
       });
     }
+/* =====================================
+   CATEGORY VALIDATION
+===================================== */
+
+if (!mongoose.Types.ObjectId.isValid(category)) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid category id",
+  });
+}
+
 const categoryExists = await Category.findById(category);
 
 if (!categoryExists) {
@@ -79,7 +94,17 @@ if (!categoryExists) {
   });
 }
 
+/* =====================================
+   SUBCATEGORY VALIDATION
+===================================== */
+
 if (subCategory) {
+  if (!mongoose.Types.ObjectId.isValid(subCategory)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid subcategory id",
+    });
+  }
 
   const subCategoryExists = await Category.findById(subCategory);
 
@@ -89,7 +114,6 @@ if (subCategory) {
       message: "Subcategory not found",
     });
   }
-
 }
     /* =====================================
        ROLE CHECK
@@ -106,10 +130,6 @@ if (subCategory) {
           "Only sellers or admins can create products",
       });
     }
-
-    /* =====================================
-       PARSE ARRAYS
-    ===================================== */
 
  /* =====================================
    PARSE ARRAYS
@@ -334,9 +354,11 @@ await Category.findByIdAndUpdate(
 ===================================== */
 
 
-export const getProducts =
-async (req, res) => {
-
+export const getProducts = async (req, res) => {
+  console.log("=== GET PRODUCTS ===");
+  console.log(req.query);
+console.log(req.originalUrl);
+console.log(req.query);
   try {
 
     /* =====================================
@@ -364,16 +386,40 @@ async (req, res) => {
 
     };
 
-    /* =====================================
-       CATEGORY FILTER
-    ===================================== */
+ /* =====================================
+   CATEGORY FILTER
+===================================== */
 
- if (req.query.category) {
+if (req.query.category) {
+  console.log("Category Query:", req.query.category);
 
-  query.category = req.query.category;
+  let value = req.query.category;
 
+  // Handle category sent as an array
+  if (Array.isArray(value)) {
+    value = value[0];
+  }
+
+  // Convert to string and trim
+  value = String(value).trim();
+
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    query.category = new mongoose.Types.ObjectId(value);
+  } else {
+    const category = await Category.findOne({
+      name: { $regex: `^${value}$`, $options: "i" },
+    });
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    query.category = category._id;
+  }
 }
-
     /* =====================================
        BRAND FILTER
     ===================================== */
@@ -579,28 +625,35 @@ async (req, res) => {
        FETCH PRODUCTS
     ===================================== */
 
-   const products = await Product.find(query)
-.populate(
-  "category",
-  "name slug image"
-)
-.populate(
-  "subCategory",
-  "name slug"
-)
-.populate(
-  "seller",
-  "firstName lastName email image"
-)
+//    const products = await Product.find(query)
+// .populate(
+//   "category",
+//   "name slug image"
+// )
+// .populate(
+//   "subCategory",
+//   "name slug"
+// )
+// .populate(
+//   "seller",
+//   "firstName lastName email image"
+// )
 
-      .sort(sortOption)
+//       .sort(sortOption)
 
-      .skip(skip)
+//       .skip(skip)
 
-      .limit(limit)
+//       .limit(limit)
 
-      .lean();
-
+//       .lean();
+const products = await Product.find(query)
+  .populate("category", "name slug image")
+  .populate("subCategory", "name slug")
+  .populate("seller", "firstName lastName email image")
+  .sort(sortOption)
+  .skip(skip)
+  .limit(limit)
+  .lean();
     /* =====================================
        TOTAL
     ===================================== */

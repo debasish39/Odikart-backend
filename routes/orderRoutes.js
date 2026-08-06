@@ -203,7 +203,7 @@ router.put(
 /* Refund */
 
 router.put(
-  "/return/refund/:orderId",
+  "/return/refund-complete/:orderId",
   authMiddleware,
   authorizeRoles("admin"),
   completeRefund
