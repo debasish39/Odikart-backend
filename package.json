@@ -6,8 +6,7 @@
   "scripts": {
     "start": "nodemon server.js",
     "dev": "nodemon server.js",
-        "migrate:categories": "node scripts/migrateProductCategories.js"
-
+    "migrate:categories": "node scripts/migrateProductCategories.js"
   },
   "dependencies": {
     "@clerk/clerk-sdk-node": "^4.13.23",
@@ -27,6 +26,7 @@
     "razorpay": "^2.9.2",
     "resend": "^6.12.3",
     "slugify": "^1.6.9",
+    "socket.io": "^4.8.3",
     "twilio": "^6.0.2"
   }
 }

@@ -591,31 +591,37 @@ shipping: {
   /* =====================================
      CANCELLATION
   ===================================== */
+cancellation: {
+  allowed: {
+    type: Boolean,
+    default: true,
+  },
 
- cancellation: {
+  cancelBefore: {
+    type: Date,
+    default: () => new Date(Date.now() + 24 * 60 * 60 * 1000),
+  },
 
   cancelled: {
     type: Boolean,
-    default: false
+    default: false,
   },
 
-  cancelledAt: Date,
+  cancelledAt: {
+    type: Date,
+    default: null,
+  },
 
   cancelledBy: {
     type: String,
-    enum: [
-      "",
-      "Customer",
-      "Seller",
-      "Admin"
-    ],
-    default: ""
+    enum: ["Customer", "Seller", "Admin", ""],
+    default: "",
   },
 
   reason: {
     type: String,
-    default: ""
-  }
+    default: "",
+  },
 },
 timeline: {
 

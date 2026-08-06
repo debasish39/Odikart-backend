@@ -199,6 +199,9 @@ finalAmount = Math.max(
 
 
 }
+// Cancellation allowed for 24 hours
+const cancelBefore = new Date();
+cancelBefore.setHours(cancelBefore.getHours() + 24);
 const order = new Order({
     userId: req.user._id,
     orderNumber: generateOrderNumber(),
@@ -287,7 +290,10 @@ const order = new Order({
             signature: req.body.razorpaySignature || "",
         },
     },
-
+  cancellation: {
+      allowed: true,
+      cancelBefore
+   },
     items: formattedItems,
 });
 
@@ -1155,20 +1161,38 @@ if (
        7 DAYS CHECK
     ===================================== */
 
-    const now = new Date();
+const now = new Date();
 
-   const orderDate = new Date(order.createdAt);
+const cancellableStatuses = [
+    "Pending Payment",
+    "Confirmed",
+    "Processing",
+    
+];
 
-    const diffDays = (now - orderDate) / (1000 * 60 * 60 * 24);
-
-    if (diffDays > 7) {
-      return res.status(400).json({
+// Already cancelled
+if (order.cancellation.cancelled) {
+    return res.status(400).json({
         success: false,
+        message: "Order already cancelled."
+    });
+}
 
-        message: "Cancellation period expired (7 days)",
-      });
-    }
+// Time expired
+if (now > order.cancellation.cancelBefore) {
+    return res.status(400).json({
+        success: false,
+        message: `Cancellation was allowed only until ${order.cancellation.cancelBefore.toLocaleString("en-IN")}`
+    });
+}
 
+// Status not allowed
+if (!cancellableStatuses.includes(order.status)) {
+    return res.status(400).json({
+        success: false,
+        message: `Order cannot be cancelled after "${order.status}".`
+    });
+}
     /* =====================================
        CANCEL ORDER
     ===================================== */
@@ -1703,8 +1727,10 @@ const ORDER_FLOW = {
 
   "Processing": ["Packed", "Cancelled"],
 
-  "Packed": ["Ready for Pickup"],
-
+"Packed": [
+   "Ready for Pickup",
+   "Cancelled"
+],
   "Ready for Pickup": ["Shipped"],
 
   "Shipped": ["In Transit"],
@@ -1845,26 +1871,8 @@ if(status==="Out for Delivery"){
     }
 
 }
-if(status==="Delivered"){
 
-    if(order.status!=="Out for Delivery"){
 
-        return res.status(400).json({
-            success:false,
-            message:"Order must be Out for Delivery first"
-        });
-
-    }
-
-    order.deliveredAt=new Date();
-
-    if(order.payment.method==="COD"){
-
-        order.payment.status="Paid";
-
-    }
-
-}
 if(status==="Return Requested"){
 
     if(order.status!=="Delivered"){
@@ -1879,11 +1887,11 @@ if(status==="Return Requested"){
 }
 if(status==="Refund Processing"){
 
-    if(order.status!=="Returned"){
+    if(order.status!=="Inspection"){
 
         return res.status(400).json({
             success:false,
-            message:"Order must be Returned first"
+            message:"Order must complete inspection first"
         });
 
     }
