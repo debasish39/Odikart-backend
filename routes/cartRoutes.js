@@ -1,108 +1,76 @@
 import express from "express";
 
 import {
-
-  saveCart,
-
-  getCart,
-
   addToCart,
-
+  getCart,
   increaseQuantity,
-
   decreaseQuantity,
-
   removeCartItem,
-
   clearCart,
+} from "../controllers/CartController.js";
 
-} from "../controllers/cartController.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
-import authMiddleware
-from "../middleware/authMiddleware.js";
-
-const router =
-  express.Router();
+const router = express.Router();
 
 /* =====================================
-   CART ROUTES
+   GET CART
 ===================================== */
 
-// SAVE CART
-router.post(
-
-  "/cart",
-
-  authMiddleware,
-
-  saveCart
-
-);
-
-// GET USER CART
 router.get(
-
-  "/cart",
-
+  "/",
   authMiddleware,
-
   getCart
-
 );
 
-// ADD TO CART
+/* =====================================
+   ADD TO CART
+===================================== */
+
 router.post(
-
-  "/cart/add",
-
+  "/add",
   authMiddleware,
-
   addToCart
-
 );
 
-// INCREASE QUANTITY
+/* =====================================
+   INCREASE
+===================================== */
+
 router.put(
-
-  "/cart/increase",
-
+  "/increase",
   authMiddleware,
-
   increaseQuantity
-
 );
 
-// DECREASE QUANTITY
+/* =====================================
+   DECREASE
+===================================== */
+
 router.put(
-
-  "/cart/decrease",
-
+  "/decrease",
   authMiddleware,
-
   decreaseQuantity
-
 );
 
-// REMOVE ITEM
+/* =====================================
+   REMOVE
+===================================== */
+
 router.delete(
-
-  "/cart/remove",
-
+  "/remove",
   authMiddleware,
-
   removeCartItem
-
 );
 
-// CLEAR CART
+/* =====================================
+   CLEAR
+===================================== */
+
 router.delete(
-
-  "/cart/clear",
-
+  "/clear",
   authMiddleware,
-
   clearCart
-
 );
 
 export default router;

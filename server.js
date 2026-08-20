@@ -15,6 +15,10 @@ import couponRoutes from "./routes/couponRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import brandRoutes from "./routes/brandRoutes.js";
 import courierRoutes from "./routes/courierRoutes.js";
+import walletRoutes from "./routes/walletRoutes.js";
+import withdrawalRoutes from "./routes/withdrawalRoutes.js";
+import sellerSettingsRoutes from "./routes/sellerSettingsRoutes.js";
+
 dotenv.config();
 
 const app = express();
@@ -68,7 +72,7 @@ app.use(
 );
 
 app.use(
-  "/api",
+  "/api/cart",
   cartRoutes
 );
 
@@ -91,6 +95,18 @@ app.use(
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/coupons", couponRoutes);
+app.use(
+  "/api/wallet",
+  walletRoutes
+);
+app.use(
+  "/api/wallet/withdraw",
+  withdrawalRoutes
+);
+app.use(
+  "/api/seller/settings",
+  sellerSettingsRoutes
+);
 /* =====================================
    SERVER
 ===================================== */

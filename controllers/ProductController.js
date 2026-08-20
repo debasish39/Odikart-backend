@@ -4,350 +4,545 @@ import slugify from "slugify";
 import { nanoid } from "nanoid";
 import Order from "../models/Order.js";
 import Category from "../models/Category.js";
+import User from "../models/User.js";
+
 /* =====================================
    CREATE PRODUCT
 ===================================== */
 
+/* =====================================
+   SECURITY HELPERS
+===================================== */
+
+const MAX_PAGE_SIZE = 100;
+const MAX_TEXT = 20000;
+const MAX_COMMENT = 2000;
+const MAX_REASON = 1000;
+const MAX_VARIANTS = 100;
+const MAX_STOCK = 100000000;
+
+const isValidObjectId = (id) =>
+  Boolean(id) && mongoose.Types.ObjectId.isValid(id);
+
+const getUserId = (req) =>
+  req.user?._id || req.user?.id;
+
+const cleanString = (value, maxLength = MAX_TEXT) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim().slice(0, maxLength);
+};
+
+const escapeRegex = (value) =>
+  cleanString(value, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const parseJsonField = (value, fallback) => {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const getPagination = (req) => {
+  const requestedPage = Number(req.query.page);
+  const requestedLimit = Number(req.query.limit);
+
+  const page =
+    Number.isInteger(requestedPage) && requestedPage > 0
+      ? requestedPage
+      : 1;
+
+  const limit =
+    Number.isInteger(requestedLimit) &&
+    requestedLimit > 0 &&
+    requestedLimit <= MAX_PAGE_SIZE
+      ? requestedLimit
+      : 20;
+
+  return {
+    page,
+    limit,
+    skip: (page - 1) * limit,
+  };
+};
+
+const requireAdmin = (req, res) => {
+  if (req.user?.role !== "admin") {
+    res.status(403).json({
+      success: false,
+      message: "Admin access only",
+    });
+    return false;
+  }
+
+  return true;
+};
+
+const getApprovedSeller = async (req, res) => {
+  const sellerId = getUserId(req);
+
+  if (!sellerId || !isValidObjectId(sellerId)) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+    return null;
+  }
+
+  const seller = await User.findById(sellerId).select(
+    "_id role sellerStatus isBlocked isDeleted sellerInfo.verification.status"
+  );
+
+  if (!seller) {
+    res.status(404).json({
+      success: false,
+      message: "Seller not found",
+    });
+    return null;
+  }
+
+  if (seller.role !== "seller") {
+    res.status(403).json({
+      success: false,
+      message: "Seller access only",
+    });
+    return null;
+  }
+
+  if (seller.isBlocked || seller.isDeleted) {
+    res.status(403).json({
+      success: false,
+      message: "Seller account is not active",
+    });
+    return null;
+  }
+
+  /*
+    Both values must be approved.
+
+    This is important for OdiKart:
+    sellerStatus alone must never be trusted as proof
+    that KYC/verification was approved.
+  */
+  if (
+    seller.sellerStatus !== "approved" ||
+    seller.sellerInfo?.verification?.status !== "approved"
+  ) {
+    res.status(403).json({
+      success: false,
+      message:
+        "Seller verification is not approved. Complete document verification before managing products.",
+      sellerStatus: seller.sellerStatus,
+      verificationStatus:
+        seller.sellerInfo?.verification?.status || "pending",
+    });
+    return null;
+  }
+
+  return seller;
+};
+
+const validateVariants = (variants) => {
+  if (!Array.isArray(variants) || variants.length === 0) {
+    return {
+      valid: false,
+      message: "At least one product variant is required",
+    };
+  }
+
+  if (variants.length > MAX_VARIANTS) {
+    return {
+      valid: false,
+      message: `A product cannot contain more than ${MAX_VARIANTS} variants`,
+    };
+  }
+
+  const seenSkus = new Set();
+  const normalized = [];
+
+  for (const variant of variants) {
+    const sku = cleanString(variant?.sku, 100);
+
+    if (!sku) {
+      return {
+        valid: false,
+        message: "Every variant must have a SKU",
+      };
+    }
+
+    if (seenSkus.has(sku)) {
+      return {
+        valid: false,
+        message: "Duplicate SKU values are not allowed",
+      };
+    }
+
+    seenSkus.add(sku);
+
+    const price = Number(variant?.price);
+    const originalPrice = Number(variant?.originalPrice || 0);
+    const stock = Number(variant?.stock);
+    const weight = Number(variant?.weight || 0);
+
+    if (!Number.isFinite(price) || price < 0) {
+      return {
+        valid: false,
+        message: `Invalid price for SKU ${sku}`,
+      };
+    }
+
+    if (
+      !Number.isInteger(stock) ||
+      stock < 0 ||
+      stock > MAX_STOCK
+    ) {
+      return {
+        valid: false,
+        message: `Invalid stock for SKU ${sku}`,
+      };
+    }
+
+    if (!Number.isFinite(originalPrice) || originalPrice < 0) {
+      return {
+        valid: false,
+        message: `Invalid original price for SKU ${sku}`,
+      };
+    }
+
+    if (!Number.isFinite(weight) || weight < 0) {
+      return {
+        valid: false,
+        message: `Invalid weight for SKU ${sku}`,
+      };
+    }
+
+    normalized.push({
+      ...variant,
+      sku,
+      price,
+      originalPrice,
+      stock,
+      weight,
+      isActive: variant?.isActive !== false,
+    });
+  }
+
+  return {
+    valid: true,
+    variants: normalized,
+  };
+};
 
 export const createProduct = async (req, res) => {
   try {
+    const sellerId = req.user.id;
 
-    console.log("REQ BODY:", req.body);
+    /* =====================================
+       SELLER CHECK
+    ===================================== */
 
-    console.log("REQ FILES:", req.files);
-    
+    const seller = await User.findById(sellerId);
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    if (seller.role !== "seller") {
+      return res.status(403).json({
+        success: false,
+        message: "Only sellers can create products",
+      });
+    }
+
+    if (seller.isBlocked || seller.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: "Seller account is not active",
+      });
+    }
+
+    if (
+      seller.sellerStatus !== "approved" ||
+      seller.sellerInfo?.verification?.status !== "approved"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Seller verification is not approved. Complete document verification before creating products.",
+        sellerStatus: seller.sellerStatus,
+        verificationStatus:
+          seller.sellerInfo?.verification?.status || "pending",
+      });
+    }
+
+    /* =====================================
+       PRODUCT DATA
+    ===================================== */
+
     const {
       title,
       description,
       shortDescription,
       category,
       subCategory,
-      tags,
+      tags: rawTags,
       brand,
-      price,
-      originalPrice,
-      discountPercentage,
-      tax,
-      shippingCharge,
+      productType,
+      variants: rawVariants,
       currency,
-      stock,
       minimumOrderQuantity,
       maximumOrderQuantity,
-      sizes,
-      colors,
-      sku,
-      barcode,
-      qrCode,
-      weight,
-      dimensions,
+      shipping: rawShipping,
       material,
       warrantyInformation,
       returnPolicy,
       shippingInformation,
-      thumbnail,
-      videoUrl,
-      featured,
-      trending,
-      bestSeller,
-      isNewArrival,
-      metaTitle,
-      metaDescription,
-      metaKeywords,
+      seo: rawSeo,
+      offer: rawOffer,
     } = req.body;
 
-console.log("Category:", category);
-console.log("SubCategory:", subCategory);
-console.log("Is Valid:", mongoose.Types.ObjectId.isValid(category));
+    const tags = parseJsonField(rawTags, []);
+    const variants = parseJsonField(rawVariants, []);
+    const shipping = parseJsonField(rawShipping, {});
+    const seo = parseJsonField(rawSeo, {});
+    const offer = parseJsonField(rawOffer, {});
+
+    /* =====================================
+       UPLOADED MEDIA
+    ===================================== */
+
+    const imageFiles = Array.isArray(req.files?.images)
+      ? req.files.images
+      : req.files?.images
+        ? [req.files.images]
+        : [];
+
+    const videoFiles = Array.isArray(req.files?.videos)
+      ? req.files.videos
+      : req.files?.videos
+        ? [req.files.videos]
+        : [];
+
+    const getFileUrl = (file) =>
+      file?.path ||
+      file?.secure_url ||
+      file?.location ||
+      file?.url ||
+      "";
+
+    const media = {
+      images: imageFiles.map(getFileUrl).filter(Boolean),
+      videos: videoFiles.map(getFileUrl).filter(Boolean),
+    };
     /* =====================================
        VALIDATION
     ===================================== */
 
     if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !category?.trim() ||
-      price === undefined ||
-      price === null
+      typeof title !== "string" ||
+      title.trim().length < 3 ||
+      title.trim().length > 200
     ) {
       return res.status(400).json({
         success: false,
-        message: "Please fill all required fields",
+        message:
+          "Product title must be between 3 and 200 characters",
       });
     }
-/* =====================================
-   CATEGORY VALIDATION
-===================================== */
 
-if (!mongoose.Types.ObjectId.isValid(category)) {
-  return res.status(400).json({
-    success: false,
-    message: "Invalid category id",
-  });
-}
+    if (
+      typeof description !== "string" ||
+      description.trim().length < 10 ||
+      description.trim().length > MAX_TEXT
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Product description must be between 10 and 20000 characters",
+      });
+    }
 
-const categoryExists = await Category.findById(category);
+    if (!category) {
+      return res.status(400).json({
+        success: false,
+        message: "Category is required",
+      });
+    }
 
-if (!categoryExists) {
-  return res.status(404).json({
-    success: false,
-    message: "Category not found",
-  });
-}
+    if (
+      !mongoose.Types.ObjectId.isValid(category)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category",
+      });
+    }
 
-/* =====================================
-   SUBCATEGORY VALIDATION
-===================================== */
-
-if (subCategory) {
-  if (!mongoose.Types.ObjectId.isValid(subCategory)) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid subcategory id",
-    });
-  }
-
-  const subCategoryExists = await Category.findById(subCategory);
-
-  if (!subCategoryExists) {
-    return res.status(404).json({
-      success: false,
-      message: "Subcategory not found",
-    });
-  }
-}
     /* =====================================
-       ROLE CHECK
+       VARIANT VALIDATION
     ===================================== */
 
     if (
-      !["seller", "admin"].includes(
-        req.user.role
-      )
+      !variants ||
+      !Array.isArray(variants) ||
+      variants.length === 0
     ) {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
-        message:
-          "Only sellers or admins can create products",
+        message: "At least one product variant is required",
       });
     }
 
- /* =====================================
-   PARSE ARRAYS
-===================================== */
-
-const parsedTags =
-  typeof tags === "string"
-    ? JSON.parse(tags)
-    : tags || [];
-
-const parsedColors =
-  typeof colors === "string"
-    ? JSON.parse(colors)
-    : colors || [];
-
-const parsedSizes =
-  typeof sizes === "string"
-    ? JSON.parse(sizes)
-    : sizes || [];
-
-const parsedMetaKeywords =
-  typeof metaKeywords === "string"
-    ? JSON.parse(metaKeywords)
-    : metaKeywords || [];
-
-const parsedDimensions =
-  typeof dimensions === "string"
-    ? JSON.parse(dimensions)
-    : dimensions || {};
     /* =====================================
-       UPLOADED IMAGES
+       CHECK SKU DUPLICATE
     ===================================== */
 
- 
-/* =====================================
-   UPLOADED IMAGES
-===================================== */
+    const variantValidation =
+      validateVariants(variants);
 
-const uploadedImages =
+    if (!variantValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: variantValidation.message,
+      });
+    }
 
-  req.files?.images?.map(
+    const normalizedVariants =
+      variantValidation.variants;
 
-    (file) => file.path
+    const skus =
+      normalizedVariants.map(
+        (variant) => variant.sku
+      );
 
-  ) || [];
+    const existingProduct = await Product.findOne({
+      "variants.sku": {
+        $in: skus,
+      },
+    });
 
-/* =====================================
-   UPLOADED VIDEOS
-===================================== */
-
-const uploadedVideos =
-
-  req.files?.videos?.map(
-
-    (file) => file.path
-
-  ) || [];
-
-console.log(
-  "UPLOADED IMAGES:",
-  uploadedImages
-);
-
-console.log(
-  "UPLOADED VIDEOS:",
-  uploadedVideos
-);
-
+    if (existingProduct) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more SKU already exist",
+      });
+    }
 
     /* =====================================
        CREATE PRODUCT
     ===================================== */
+const product = await Product.create({
+  title,
+  description,
+  shortDescription,
 
-
-const product =
-  await Product.create({
-
-    title,
-
-    slug: `${slugify(title, {
-      lower: true,
-      strict: true,
-    })}-${nanoid(5)}`,
-
-    description,
-
-    shortDescription,
-
-    category,
-
-    subCategory,
-
-    tags: parsedTags,
-
-    brand,
-
-    price: Number(price),
-
-    originalPrice:
-      Number(originalPrice) || 0,
-
-    discountPercentage:
-      Number(
-        discountPercentage
-      ) || 0,
-
-    tax: Number(tax) || 0,
-
-    shippingCharge:
-      Number(
-        shippingCharge
-      ) || 0,
-
-    currency,
-
-    stock:
-      Number(stock) || 0,
-
-    minimumOrderQuantity:
-      Number(
-        minimumOrderQuantity
-      ) || 1,
-
-    maximumOrderQuantity:
-      Number(
-        maximumOrderQuantity
-      ) || 10,
-
-    sizes: parsedSizes,
-
-    colors: parsedColors,
-
-    sku,
-
-    barcode,
-
-    qrCode,
-
-    weight:
-      Number(weight) || 0,
-
-    dimensions,
-
-    material,
-
-    warrantyInformation,
-
-    returnPolicy,
-
-    shippingInformation,
-
-    images: uploadedImages,
-
-    videos: uploadedVideos,
-
-    thumbnail,
-
-    videoUrl,
-
-    featured:
-      featured === "true",
-
-    trending:
-      trending === "true",
-
-    bestSeller:
-      bestSeller === "true",
-
-    isNewArrival:
-      isNewArrival === "true",
-
-    metaTitle,
-
-    metaDescription,
-
-    metaKeywords:
-      parsedMetaKeywords,
-
-    seller: req.user?._id,
-  });
-await Category.findByIdAndUpdate(
   category,
-  {
-    $inc: {
-      productCount: 1,
-    },
-  }
-);
+  subCategory: subCategory || null,
 
+  tags: Array.isArray(tags)
+    ? tags
+    : [],
+
+  brand: brand || "",
+
+  productType:
+    productType || "simple",
+
+  variants: normalizedVariants,
+
+  media,
+
+  currency:
+    currency || "INR",
+
+  minimumOrderQuantity:
+    minimumOrderQuantity || 1,
+
+  maximumOrderQuantity:
+    maximumOrderQuantity || 10,
+
+  shipping,
+
+  material,
+
+  warrantyInformation,
+
+  returnPolicy,
+
+  shippingInformation,
+
+  seller: sellerId,
+
+  seo,
+
+  offer,
+
+  status: "pending",
+
+  approvalHistory: [
+    {
+      action: "submitted",
+      reason: "Product submitted for approval",
+      performedBy: sellerId,
+    },
+  ],
+});
 
     /* =====================================
        RESPONSE
     ===================================== */
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-
       message:
-        "Product created successfully",
-
+        "Product created and submitted for approval",
       product,
     });
 
   } catch (error) {
+  console.error("=================================");
+  console.error("CREATE PRODUCT ERROR");
+  console.error(error);
+  console.error("=================================");
 
-    console.error(
-      "Create Product Error:",
-      error
-    );
-
-    res.status(500).json({
+  if (error?.code === 11000) {
+    return res.status(409).json({
       success: false,
-      message: error.message,
+      message: "Duplicate value already exists",
+      keyPattern: error.keyPattern || null,
+      keyValue: error.keyValue || null,
     });
-
   }
-};
 
+  if (error?.name === "ValidationError") {
+    return res.status(400).json({
+      success: false,
+      message: Object.values(error.errors)
+        .map((err) => err.message)
+        .join(", "),
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message:
+      typeof error?.message === "string"
+        ? error.message
+        : "Failed to create product",
+  });
+}
+};
 
 /* =====================================
    GET ALL PRODUCTS
@@ -355,43 +550,33 @@ await Category.findByIdAndUpdate(
 
 
 export const getProducts = async (req, res) => {
-  console.log("=== GET PRODUCTS ===");
-  console.log(req.query);
-console.log(req.originalUrl);
-console.log(req.query);
   try {
 
     /* =====================================
        PAGINATION
     ===================================== */
 
-    const page =
-      Number(req.query.page) || 1;
-
-    const limit =
-      Number(req.query.limit) || 20;
-
-    const skip =
-      (page - 1) * limit;
+    const {
+      page,
+      limit,
+      skip,
+    } = getPagination(req);
 
     /* =====================================
        FILTERS
     ===================================== */
 
-    const query = {
-
-      isDeleted: false,
-
-      isActive: true,
-
-    };
+   const query = {
+  isDeleted: false,
+  isActive: true,
+  status: "approved"
+};
 
  /* =====================================
    CATEGORY FILTER
 ===================================== */
 
 if (req.query.category) {
-  console.log("Category Query:", req.query.category);
 
   let value = req.query.category;
 
@@ -427,12 +612,8 @@ if (req.query.category) {
     if (req.query.brand) {
 
       query.brand = {
-
-        $regex:
-          req.query.brand,
-
+        $regex: escapeRegex(req.query.brand),
         $options: "i",
-
       };
 
     }
@@ -444,12 +625,8 @@ if (req.query.category) {
     if (req.query.search) {
 
       query.title = {
-
-        $regex:
-          req.query.search,
-
+        $regex: escapeRegex(req.query.search),
         $options: "i",
-
       };
 
     }
@@ -466,25 +643,57 @@ if (req.query.category) {
 
     ) {
 
-      query.price = {};
+      const minPrice =
+        req.query.minPrice !== undefined
+          ? Number(req.query.minPrice)
+          : undefined;
 
-      if (req.query.minPrice) {
+      const maxPrice =
+        req.query.maxPrice !== undefined
+          ? Number(req.query.maxPrice)
+          : undefined;
 
-        query.price.$gte =
-          Number(
-            req.query.minPrice
-          );
-
+      if (
+        minPrice !== undefined &&
+        (!Number.isFinite(minPrice) || minPrice < 0)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid minimum price",
+        });
       }
 
-      if (req.query.maxPrice) {
-
-        query.price.$lte =
-          Number(
-            req.query.maxPrice
-          );
-
+      if (
+        maxPrice !== undefined &&
+        (!Number.isFinite(maxPrice) || maxPrice < 0)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid maximum price",
+        });
       }
+
+      if (
+        minPrice !== undefined &&
+        maxPrice !== undefined &&
+        minPrice > maxPrice
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Minimum price cannot exceed maximum price",
+        });
+      }
+
+      query.variants = {
+        $elemMatch: {
+          ...(minPrice !== undefined
+            ? { price: { $gte: minPrice } }
+            : {}),
+          ...(maxPrice !== undefined
+            ? { price: { $lte: maxPrice } }
+            : {}),
+        },
+      };
 
     }
 
@@ -707,7 +916,7 @@ const products = await Product.find(query)
       success: false,
 
       message:
-        error.message,
+        "An unexpected error occurred",
 
     });
 
@@ -720,40 +929,76 @@ const products = await Product.find(query)
    GET SINGLE PRODUCT
 ===================================== */
 
-export const getSingleProduct = async (req, res) => {
+export const getProduct = async (
+  req,
+  res
+) => {
   try {
- const product = await Product.findById(req.params.id)
-.populate(
-    "category",
-    "name slug image"
-)
-.populate(
-    "subCategory",
-    "name slug"
-)
-.populate(
-    "seller",
-    "firstName lastName email image"
-);
+    const { id } = req.params;
+
+    if (
+      !mongoose.Types.ObjectId.isValid(id)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const product =
+      await Product.findOne({
+        _id: id,
+        isDeleted: false,
+        isActive: true,
+        status: "approved",
+      })
+        .populate(
+          "category",
+          "name"
+        )
+        .populate(
+          "subCategory",
+          "name"
+        )
+        .populate(
+          "seller",
+          "firstName lastName image sellerInfo.store.shopName sellerStatus"
+        );
 
     if (!product) {
       return res.status(404).json({
         success: false,
-
         message: "Product not found",
       });
     }
 
-    res.status(200).json({
-      success: true,
+    /* =====================================
+       INCREMENT VIEWS
+    ===================================== */
 
+    await Product.findByIdAndUpdate(
+      id,
+      {
+        $inc: {
+          "analytics.views": 1,
+        },
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
       product,
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
 
-      message: error.message,
+  } catch (error) {
+    console.error(
+      "Get Product Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
     });
   }
 };
@@ -761,198 +1006,558 @@ export const getSingleProduct = async (req, res) => {
 /* =====================================
    UPDATE PRODUCT
 ===================================== */
+
 export const updateProduct = async (req, res) => {
   try {
+    const sellerId = req.user.id;
+    const { id } = req.params;
 
-    const product = await Product.findById(req.params.id);
+    const seller = await getApprovedSeller(req, res);
+
+    if (!seller) {
+      return;
+    }
+
+    // =====================================
+    // VALIDATE PRODUCT ID
+    // =====================================
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    // =====================================
+    // FIND PRODUCT
+    // =====================================
+
+    const product = await Product.findOne({
+      _id: id,
+      seller: sellerId,
+      isDeleted: false,
+    });
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found",
+        message:
+          "Product not found or you do not own this product",
       });
     }
 
-    /* =====================================
-       SELLER OWNERSHIP
-    ===================================== */
+    // =====================================
+    // BASIC PRODUCT FIELDS
+    // =====================================
 
-    if (
-      req.user.role === "seller" &&
-      product.seller?.toString() !== req.user._id?.toString()
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "You can only update your own products",
-      });
+    const allowedFields = [
+      "title",
+      "description",
+      "shortDescription",
+      "category",
+      "subCategory",
+      "tags",
+      "brand",
+      "productType",
+      "currency",
+      "minimumOrderQuantity",
+      "maximumOrderQuantity",
+      "shipping",
+      "material",
+      "warrantyInformation",
+      "returnPolicy",
+      "shippingInformation",
+      "seo",
+      "offer",
+      "media",
+    ];
+
+    for (const field of allowedFields) {
+      if (req.body[field] === undefined) {
+        continue;
+      }
+
+      if (
+        [
+          "shipping",
+          "seo",
+          "offer",
+          "media",
+        ].includes(field)
+      ) {
+        product[field] = parseJsonField(
+          req.body[field],
+          product[field] || {}
+        );
+      } else if (field === "tags") {
+        const incomingTags =
+          parseJsonField(req.body[field], []);
+
+        product[field] = Array.isArray(incomingTags)
+          ? incomingTags
+              .map((tag) => cleanString(tag, 50))
+              .filter(Boolean)
+              .slice(0, 50)
+          : [];
+      } else {
+        product[field] = req.body[field];
+      }
     }
 
-    /* =====================================
-       CATEGORY COUNT UPDATE
-    ===================================== */
-
-    const oldCategory = product.category?.toString();
-    const newCategory = req.body.category;
-
-    if (
-      newCategory &&
-      oldCategory !== newCategory
-    ) {
-
-      // Decrease old category count
-      await Category.findByIdAndUpdate(
-        oldCategory,
-        {
-          $inc: {
-            productCount: -1,
-          },
-        }
-      );
-
-      // Increase new category count
-      await Category.findByIdAndUpdate(
-        newCategory,
-        {
-          $inc: {
-            productCount: 1,
-          },
-        }
-      );
-
+    if (product.category) {
+      if (!isValidObjectId(product.category)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid category",
+        });
+      }
     }
 
-    /* =====================================
-       UPDATE PRODUCT
-    ===================================== */
-
-    const updatedProduct =
-      await Product.findByIdAndUpdate(
-
-        req.params.id,
-
-        req.body,
-
-        {
-          new: true,
-          runValidators: true,
-        }
-
+    if (
+      product.title &&
+      (
+        product.title.trim().length < 3 ||
+        product.title.trim().length > 200
       )
-      .populate("category", "name slug")
-      .populate("subCategory", "name slug")
-      .populate(
-        "seller",
-        "firstName lastName email image"
-      );
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Product title must be between 3 and 200 characters",
+      });
+    }
 
-    res.status(200).json({
+    if (
+      product.description &&
+      (
+        product.description.trim().length < 10 ||
+        product.description.trim().length > MAX_TEXT
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Product description must be between 10 and 20000 characters",
+      });
+    }
+
+    // =====================================
+    // UPDATE VARIANTS SAFELY
+    // =====================================
+
+    if (req.body.variants !== undefined) {
+      const incomingVariants =
+        parseJsonField(
+          req.body.variants,
+          []
+        );
+
+      const variantValidation =
+        validateVariants(incomingVariants);
+
+      if (!variantValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: variantValidation.message,
+        });
+      }
+
+      /*
+        Check the entire SKU set against other products.
+        Existing SKUs belonging to this product are allowed.
+      */
+      const incomingSkus =
+        variantValidation.variants.map(
+          (variant) => variant.sku
+        );
+
+      const duplicateProduct =
+        await Product.findOne({
+          _id: { $ne: product._id },
+          "variants.sku": {
+            $in: incomingSkus,
+          },
+          isDeleted: false,
+        }).select("_id");
+
+      if (duplicateProduct) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "One or more SKU already exist on another product",
+        });
+      }
+
+      product.variants =
+        variantValidation.variants;
+    }
+
+    // =====================================
+    // RESUBMIT FOR APPROVAL
+    // =====================================
+
+    product.seller = sellerId;
+    product.isDeleted = false;
+    product.isActive = true;
+    if (
+      !["draft", "rejected", "pending"].includes(
+        product.status
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Product cannot be submitted in its current status",
+      });
+    }
+
+    product.status = "pending";
+
+    product.approvalHistory.push({
+      action: "submitted",
+      reason: "Product updated and resubmitted",
+      performedBy: sellerId,
+    });
+
+    // =====================================
+    // SAVE
+    // =====================================
+
+    await product.save();
+
+    // =====================================
+    // RESPONSE
+    // =====================================
+
+    return res.status(200).json({
       success: true,
-      message: "Product updated successfully",
-      product: updatedProduct,
+      message:
+        "Product updated and submitted for approval",
+      product,
     });
 
   } catch (error) {
+    console.error(
+      "Update Product Error:",
+      error
+    );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "An unexpected error occurred",
     });
-
   }
 };
-
 /* =====================================
    DELETE PRODUCT
 ===================================== */
 
-export const deleteProduct = async (req, res) => {
+export const deleteProduct = async (
+  req,
+  res
+) => {
   try {
+    const sellerId = req.user.id;
+    const { id } = req.params;
 
-    const product = await Product.findById(req.params.id);
+    const seller = await getApprovedSeller(req, res);
+
+    if (!seller) {
+      return;
+    }
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const product =
+      await Product.findOne({
+        _id: id,
+        seller: sellerId,
+        isDeleted: false,
+      });
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found",
+        message:
+          "Product not found",
       });
     }
-
-    /* =====================================
-       SELLER OWNERSHIP
-    ===================================== */
-
-    if (
-      req.user.role === "seller" &&
-      product.seller?.toString() !== req.user._id?.toString()
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "You can only delete your own products",
-      });
-    }
-
-    /* =====================================
-       UPDATE CATEGORY COUNT
-    ===================================== */
-
-    await Category.findByIdAndUpdate(
-      product.category,
-      {
-        $inc: {
-          productCount: -1,
-        },
-      }
-    );
-
-    /* =====================================
-       SOFT DELETE
-    ===================================== */
 
     product.isDeleted = true;
     product.isActive = false;
 
     await product.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Product deleted successfully",
+      message:
+        "Product deleted successfully",
     });
 
   } catch (error) {
+    console.error(
+      "Delete Product Error:",
+      error
+    );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "An unexpected error occurred",
     });
-
   }
 };
+
 /* =====================================
    GET SELLER PRODUCTS
 ===================================== */
 
-export const getSellerProducts = async (req, res) => {
+export const getSellerProducts = async (
+  req,
+  res
+) => {
   try {
+    const seller = await getApprovedSeller(req, res);
+
+    if (!seller) {
+      return;
+    }
+
+    const sellerId = getUserId(req);
+
     const products = await Product.find({
-      seller: req.user._id,
-    }).sort({
-      createdAt: -1,
-    });
+      seller: sellerId,
+      isDeleted: false,
+    })
+      .populate(
+        "category",
+        "name"
+      )
+      .populate(
+        "subCategory",
+        "name"
+      )
+      .sort({
+        createdAt: -1,
+      });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-
+      count: products.length,
       products,
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
 
-      message: error.message,
+  } catch (error) {
+    console.error(
+      "Get Seller Products Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
     });
   }
 };
+/* =====================================
+   UPDATE VARIANT STOCK
+===================================== */
 
+export const updateVariantStock = async (
+  req,
+  res
+) => {
+  try {
+    const seller = await getApprovedSeller(req, res);
+
+    if (!seller) {
+      return;
+    }
+
+    const sellerId = getUserId(req);
+
+    const {
+      productId,
+      variantSku,
+      stock,
+    } = req.body;
+
+    if (!isValidObjectId(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const normalizedSku =
+      cleanString(variantSku, 100);
+
+    const numericStock = Number(stock);
+
+    if (
+      stock === undefined ||
+      !Number.isInteger(numericStock) ||
+      numericStock < 0 ||
+      numericStock > MAX_STOCK
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Valid stock is required",
+      });
+    }
+
+    const product =
+      await Product.findOne({
+        _id: productId,
+        seller: sellerId,
+        isDeleted: false,
+      });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Product not found",
+      });
+    }
+
+    const variant =
+      product.variants.find(
+        (item) =>
+          item.sku === variantSku
+      );
+
+    if (!variant) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Variant not found",
+      });
+    }
+
+    const oldStock =
+      variant.stock;
+
+    variant.stock = numericStock;
+
+    /* =====================================
+       INVENTORY HISTORY
+    ===================================== */
+
+    let action = "adjustment";
+
+    if (stock > oldStock) {
+      action = "restock";
+    }
+
+    if (stock < oldStock) {
+      action = "adjustment";
+    }
+
+    product.inventoryHistory.push({
+      variantSku: normalizedSku,
+      oldStock,
+      newStock: numericStock,
+      action,
+      updatedBy: sellerId,
+    });
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Stock updated successfully",
+      variant,
+    });
+
+  } catch (error) {
+    console.error(
+      "Update Stock Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
+    });
+  }
+};
+/* =====================================
+   SUBMIT PRODUCT
+===================================== */
+
+export const submitProduct = async (
+  req,
+  res
+) => {
+  try {
+    const seller = await getApprovedSeller(req, res);
+
+    if (!seller) {
+      return;
+    }
+
+    const sellerId = getUserId(req);
+
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const product =
+      await Product.findOne({
+        _id: req.params.id,
+        seller: sellerId,
+        isDeleted: false,
+      });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Product not found",
+      });
+    }
+
+    product.status = "pending";
+
+    product.approvalHistory.push({
+      action: "submitted",
+      reason:
+        "Seller submitted product for approval",
+      performedBy: sellerId,
+    });
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Product submitted for admin approval",
+      product,
+    });
+
+  } catch (error) {
+    console.error(
+      "Submit Product Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
+    });
+  }
+};
 /* =====================================
    ADD PRODUCT REVIEW
 ===================================== */
@@ -960,24 +1565,18 @@ export const addReview =async(req, res) => {
 
   try {
 
-    console.log("\n========== ADD REVIEW ==========");
-
     /* =====================================
        USER
     ===================================== */
 
     const user = req.user;
 
-    console.log("USER:", user);
-
     /* =====================================
        PRODUCT ID
     ===================================== */
 
     const productId = req.params.id;
-console.log("PARAMS:", req.params);
-console.log("PRODUCT ID:", req.params.id);
-    console.log("PRODUCT ID:", productId);
+
 
     /* =====================================
        BODY
@@ -988,28 +1587,30 @@ console.log("PRODUCT ID:", req.params.id);
       comment,
     } = req.body;
 
-    console.log("RATING:", rating);
-
-    console.log("COMMENT:", comment);
-
     /* =====================================
        FIND PRODUCT
     ===================================== */
 
-    const product =
-      await Product.findById(
-        productId
-      );
+    if (!isValidObjectId(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
 
-    console.log("FOUND PRODUCT:", product);
+    const product =
+      await Product.findOne({
+        _id: productId,
+        isDeleted: false,
+        isActive: true,
+        status: "approved",
+      });
 
     /* =====================================
        PRODUCT NOT FOUND
     ===================================== */
 
     if (!product) {
-
-      console.log("❌ PRODUCT NOT FOUND");
 
       return res.status(404).json({
 
@@ -1026,27 +1627,13 @@ console.log("PRODUCT ID:", req.params.id);
        CHECK PURCHASE
     ===================================== */
 
-    console.log(
-      "CHECKING PURCHASE..."
-    );
-
-    console.log(
-      "USER ID:",
-      user._id.toString()
-    );
-
-    console.log(
-      "PRODUCT ID:",
-      productId
-    );
-
     const hasPurchased =
       await Order.findOne({
 
         userId:
           user._id.toString(),
 
-       status: { $in: [ "Processing", "Shipped", "Delivered", ], },
+       status: "Delivered",
         items: {
 
           $elemMatch: {
@@ -1058,20 +1645,11 @@ console.log("PRODUCT ID:", req.params.id);
 
       });
 
-    console.log(
-      "HAS PURCHASED:",
-      hasPurchased
-    );
-
     /* =====================================
        USER NOT PURCHASED
     ===================================== */
 
     if (!hasPurchased) {
-
-      console.log(
-        "❌ USER HAS NOT PURCHASED PRODUCT"
-      );
 
       return res.status(403).json({
 
@@ -1088,10 +1666,6 @@ console.log("PRODUCT ID:", req.params.id);
        CHECK ALREADY REVIEWED
     ===================================== */
 
-    console.log(
-      "CHECKING EXISTING REVIEW..."
-    );
-
     const alreadyReviewed =
       product.reviews.find(
 
@@ -1102,20 +1676,11 @@ console.log("PRODUCT ID:", req.params.id);
 
       );
 
-    console.log(
-      "ALREADY REVIEWED:",
-      alreadyReviewed
-    );
-
     /* =====================================
        ALREADY REVIEWED
     ===================================== */
 
     if (alreadyReviewed) {
-
-      console.log(
-        "❌ USER ALREADY REVIEWED"
-      );
 
       return res.status(400).json({
 
@@ -1132,23 +1697,13 @@ console.log("PRODUCT ID:", req.params.id);
        VALIDATION
     ===================================== */
 
-    console.log(
-      "VALIDATING REVIEW..."
-    );
+    const numericRating = Number(rating);
 
     if (
-
-      !rating ||
-
-      rating < 1 ||
-
-      rating > 5
-
+      !Number.isInteger(numericRating) ||
+      numericRating < 1 ||
+      numericRating > 5
     ) {
-
-      console.log(
-        "❌ INVALID RATING"
-      );
 
       return res.status(400).json({
 
@@ -1169,10 +1724,6 @@ console.log("PRODUCT ID:", req.params.id);
 
     ) {
 
-      console.log(
-        "❌ INVALID COMMENT"
-      );
-
       return res.status(400).json({
 
         success: false,
@@ -1187,10 +1738,6 @@ console.log("PRODUCT ID:", req.params.id);
     /* =====================================
        REVIEW OBJECT
     ===================================== */
-
-    console.log(
-      "CREATING REVIEW OBJECT..."
-    );
 
 /* =====================================
    REVIEW IMAGES
@@ -1216,31 +1763,22 @@ const reviewVideos =
 
   ) || [];
 
-console.log(
-  "REVIEW IMAGES:",
-  reviewImages
-);
-
-console.log(
-  "REVIEW VIDEOS:",
-  reviewVideos
-);
-
     const review = {
 
       user:
         user._id,
 
       rating:
-        Number(rating),
+        numericRating,
 
-      comment,
+      comment:
+        cleanString(comment, MAX_COMMENT),
 
       reviewerName:
         `${user.firstName} ${user.lastName}`,
 
       reviewerEmail:
-        user.email,
+        undefined,
 
       reviewerImage:
         user.image,
@@ -1256,21 +1794,11 @@ verifiedPurchase:
   true,
 
 
-
     };
-
-    console.log(
-      "REVIEW OBJECT:",
-      review
-    );
 
     /* =====================================
        PUSH REVIEW
     ===================================== */
-
-    console.log(
-      "PUSHING REVIEW..."
-    );
 
     product.reviews.push(
       review
@@ -1282,11 +1810,6 @@ verifiedPurchase:
 
     product.numReviews =
       product.reviews.length;
-
-    console.log(
-      "TOTAL REVIEWS:",
-      product.numReviews
-    );
 
     /* =====================================
        CALCULATE RATING
@@ -1312,24 +1835,11 @@ verifiedPurchase:
 
     );
 
-    console.log(
-      "NEW PRODUCT RATING:",
-      product.rating
-    );
-
     /* =====================================
        SAVE PRODUCT
     ===================================== */
 
-    console.log(
-      "SAVING PRODUCT..."
-    );
-
     await product.save();
-
-    console.log(
-      "✅ REVIEW SAVED SUCCESSFULLY"
-    );
 
     /* =====================================
        RESPONSE
@@ -1360,7 +1870,7 @@ verifiedPurchase:
       success: false,
 
       message:
-        error.message,
+        "An unexpected error occurred",
 
     });
 
@@ -1385,13 +1895,29 @@ export const toggleReviewLike = async (req, res) => {
        USER
     ===================================== */
 
-    const userId = req.user._id;
+    const userId = getUserId(req);
+
+    if (
+      !isValidObjectId(productId) ||
+      !isValidObjectId(reviewId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product or review ID",
+      });
+    }
 
     /* =====================================
        FIND PRODUCT
     ===================================== */
 
-    const product = await Product.findById(productId);
+    const product =
+      await Product.findOne({
+        _id: productId,
+        isDeleted: false,
+        isActive: true,
+        status: "approved",
+      });
 
     /* =====================================
        PRODUCT NOT FOUND
@@ -1478,7 +2004,7 @@ export const toggleReviewLike = async (req, res) => {
     res.status(500).json({
       success: false,
 
-      message: error.message,
+      message: "An unexpected error occurred",
     });
   }
 };
@@ -1515,6 +2041,16 @@ async (
 
     const user =
       req.user;
+
+    if (
+      !isValidObjectId(productId) ||
+      !isValidObjectId(reviewId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product or review ID",
+      });
+    }
 
     /* =====================================
        FIND PRODUCT
@@ -1691,7 +2227,7 @@ async (
       success: false,
 
       message:
-        error.message,
+        "An unexpected error occurred",
 
     });
 
@@ -1699,3 +2235,545 @@ async (
 
 };
 
+/* =====================================
+   GET PENDING PRODUCTS
+===================================== */
+
+export const getPendingProducts = async (req, res) => {
+    if (!requireAdmin(req, res)) {
+      return;
+    }
+
+
+  try {
+    const products = await Product.find({
+      status: "pending",
+      isDeleted: false,
+    })
+      .populate("seller", "firstName lastName email image sellerInfo.store")
+      .populate("category", "name slug")
+      .populate("subCategory", "name slug")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: products.length,
+      products,
+    });
+
+  } catch (error) {
+    console.error("Get Pending Products Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
+    });
+  }
+};
+/* =====================================
+   APPROVE PRODUCT
+===================================== */
+
+export const approveProduct = async (req, res) => {
+    if (!requireAdmin(req, res)) {
+      return;
+    }
+
+
+  try {
+    const adminId = req.user.id;
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const product = await Product.findOne({
+      _id: id,
+      isDeleted: false,
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    if (product.status === "approved") {
+      return res.status(400).json({
+        success: false,
+        message: "Product is already approved",
+      });
+    }
+
+    const productSeller =
+      await User.findById(product.seller).select(
+        "_id role sellerStatus isBlocked isDeleted sellerInfo.verification.status"
+      );
+
+    if (
+      !productSeller ||
+      productSeller.role !== "seller" ||
+      productSeller.isBlocked ||
+      productSeller.isDeleted ||
+      productSeller.sellerStatus !== "approved" ||
+      productSeller.sellerInfo?.verification?.status !== "approved"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Product cannot be approved because the seller is not currently verified",
+      });
+    }
+
+    product.status = "approved";
+
+    product.rejectionReason = "";
+
+    product.approvedAt = new Date();
+
+    product.approvedBy = adminId;
+
+    product.approvalHistory.push({
+      action: "approved",
+      reason: "Product approved by admin",
+      performedBy: adminId,
+    });
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Product approved successfully",
+      product,
+    });
+
+  } catch (error) {
+    console.error("Approve Product Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
+    });
+  }
+};
+/* =====================================
+   REJECT PRODUCT
+===================================== */
+
+export const rejectProduct = async (req, res) => {
+    if (!requireAdmin(req, res)) {
+      return;
+    }
+
+
+  try {
+    const adminId = req.user.id;
+    const { id } = req.params;
+
+    const { reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const normalizedReason =
+      cleanString(reason, MAX_REASON);
+
+    if (
+      normalizedReason.length < 3
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid rejection reason is required",
+      });
+    }
+
+    const product = await Product.findOne({
+      _id: id,
+      isDeleted: false,
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    product.status = "rejected";
+
+    product.rejectionReason =
+      normalizedReason;
+
+    product.approvalHistory.push({
+      action: "rejected",
+      reason: normalizedReason,
+      performedBy: adminId,
+    });
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Product rejected successfully",
+      product,
+    });
+
+  } catch (error) {
+    console.error("Reject Product Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
+    });
+  }
+};
+/* =====================================
+   BLOCK PRODUCT
+===================================== */
+
+export const blockProduct = async (req, res) => {
+    if (!requireAdmin(req, res)) {
+      return;
+    }
+
+
+  try {
+    const adminId = req.user.id;
+    const { id } = req.params;
+
+    const { reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const product = await Product.findOne({
+      _id: id,
+      isDeleted: false,
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    const blockReason =
+      cleanString(
+        reason || "Product blocked by admin",
+        MAX_REASON
+      );
+
+    product.status = "blocked";
+
+    product.isActive = false;
+
+    product.rejectionReason =
+      blockReason;
+
+    product.approvalHistory.push({
+      action: "blocked",
+      reason: blockReason,
+      performedBy: adminId,
+    });
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Product blocked successfully",
+      product,
+    });
+
+  } catch (error) {
+    console.error("Block Product Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
+    });
+  }
+};
+/* =====================================
+   GET ADMIN PRODUCTS
+===================================== */
+
+export const getAdminProducts = async (req, res) => {
+  try {
+
+    /* =====================================
+       ADMIN CHECK
+    ===================================== */
+
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+
+    /* =====================================
+       PAGINATION
+    ===================================== */
+
+    const {
+      page,
+      limit,
+      skip,
+    } = getPagination(req);
+
+
+    /* =====================================
+       FILTERS
+    ===================================== */
+
+    const {
+      status,
+      search,
+      seller,
+      category,
+    } = req.query;
+
+
+    const query = {
+      isDeleted: false,
+    };
+
+
+    /* =====================================
+       STATUS FILTER
+    ===================================== */
+
+    if (status) {
+      const allowedStatuses = [
+        "draft",
+        "pending",
+        "approved",
+        "rejected",
+        "blocked",
+      ];
+
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid product status",
+        });
+      }
+
+      query.status = status;
+    }
+
+
+    /* =====================================
+       SEARCH PRODUCT
+    ===================================== */
+
+    if (search) {
+
+      query.title = {
+        $regex: escapeRegex(search),
+        $options: "i",
+      };
+
+    }
+
+
+    /* =====================================
+       SELLER FILTER
+    ===================================== */
+
+    if (seller) {
+      if (!isValidObjectId(seller)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid seller ID",
+        });
+      }
+
+      query.seller = seller;
+    }
+
+
+    /* =====================================
+       CATEGORY FILTER
+    ===================================== */
+
+    if (category) {
+      if (!isValidObjectId(category)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid category ID",
+        });
+      }
+
+      query.category = category;
+    }
+
+
+    /* =====================================
+       GET PRODUCTS
+    ===================================== */
+
+    const products =
+      await Product.find(query)
+
+        .populate(
+          "seller",
+          "firstName lastName email image role sellerStatus sellerInfo.store.shopName sellerInfo.verification"
+        )
+
+        .populate(
+          "category",
+          "name slug"
+        )
+
+        .populate(
+          "subCategory",
+          "name slug"
+        )
+
+        .populate(
+          "approvedBy",
+          "firstName lastName email"
+        )
+
+        .populate(
+          "approvalHistory.performedBy",
+          "firstName lastName email"
+        )
+
+        .skip(skip)
+
+        .limit(limit)
+
+        .sort({
+          createdAt: -1,
+        });
+
+
+    /* =====================================
+       TOTAL PRODUCTS
+    ===================================== */
+
+    const totalProducts =
+      await Product.countDocuments(query);
+
+
+    /* =====================================
+       STATUS COUNTS
+    ===================================== */
+
+    const [
+      pendingProducts,
+      approvedProducts,
+      rejectedProducts,
+      blockedProducts,
+      draftProducts,
+    ] = await Promise.all([
+
+      Product.countDocuments({
+        isDeleted: false,
+        status: "pending",
+      }),
+
+      Product.countDocuments({
+        isDeleted: false,
+        status: "approved",
+      }),
+
+      Product.countDocuments({
+        isDeleted: false,
+        status: "rejected",
+      }),
+
+      Product.countDocuments({
+        isDeleted: false,
+        status: "blocked",
+      }),
+
+      Product.countDocuments({
+        isDeleted: false,
+        status: "draft",
+      }),
+
+    ]);
+
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
+    return res.status(200).json({
+
+      success: true,
+
+      page,
+
+      limit,
+
+      count:
+        products.length,
+
+      totalProducts,
+
+      totalPages:
+        Math.ceil(
+          totalProducts / limit
+        ),
+
+      statusCounts: {
+
+        pending:
+          pendingProducts,
+
+        approved:
+          approvedProducts,
+
+        rejected:
+          rejectedProducts,
+
+        blocked:
+          blockedProducts,
+
+        draft:
+          draftProducts,
+
+      },
+
+      products,
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "Get Admin Products Error:",
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        "An unexpected error occurred",
+
+    });
+
+  }
+};

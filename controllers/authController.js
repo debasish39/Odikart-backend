@@ -1,1744 +1,2223 @@
-/**
- * The code includes functions for user authentication such as sending, resending, and verifying OTPs,
- * registering users, logging in with password or OTP, and retrieving user data.
- * @param req - The `req` parameter in the functions represents the HTTP request object, which contains
- * information about the incoming request such as the headers, parameters, body, etc.
- * @param res - The `res` parameter in the code snippets you provided stands for the response object in
- * Express.js. It is used to send a response back to the client making the HTTP request. The response
- * object has methods like `res.status()` to set the HTTP status code, `res.json()` to send a
- * @returns The code provided contains several functions related to user authentication and
- * verification.
- */
+import mongoose from "mongoose";
 import User from "../models/User.js";
-
 import bcrypt from "bcryptjs";
-
 import generateOTP from "../utils/generateOTP.js";
-
 import generateToken from "../utils/generateToken.js";
-
 import sendEmailOTP from "../utils/sendEmailOTP.js";
 
-/* =====================================
-   RESEND OTP
-===================================== */
+/* =========================================================
+   SECURITY CONFIGURATION
+========================================================= */
 
-export const resendOTP = async (
+const OTP_EXPIRY_MS = 5 * 60 * 1000;
+const OTP_LENGTH = 6;
 
-  req,
-  res
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
 
+const MAX_NAME_LENGTH = 80;
+const MAX_PHONE_LENGTH = 20;
+const MAX_EMAIL_LENGTH = 254;
+
+const MAX_OTP_ATTEMPTS = 5;
+
+/*
+  OTP attempts are stored in-memory here only as an
+  additional application-layer protection.
+
+  IMPORTANT:
+  For a multi-server production deployment, move this
+  counter to Redis or another shared store.
+*/
+const otpAttempts = new Map();
+
+const normalizeEmail = (email) =>
+  String(email ?? "")
+    .trim()
+    .toLowerCase()
+    .slice(0, MAX_EMAIL_LENGTH);
+
+const normalizeString = (
+  value,
+  maxLength
+) =>
+  String(value ?? "")
+    .trim()
+    .slice(0, maxLength);
+
+const isValidEmail = (email) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email
+  );
+
+const isValidObjectId = (id) =>
+  Boolean(id) &&
+  mongoose.Types.ObjectId.isValid(id);
+
+const isStrongEnoughPassword = (
+  password
 ) => {
+  if (
+    typeof password !== "string" ||
+    password.length <
+      MIN_PASSWORD_LENGTH ||
+    password.length >
+      MAX_PASSWORD_LENGTH
+  ) {
+    return false;
+  }
 
-  try {
+  /*
+    At least:
+    - one lowercase
+    - one uppercase
+    - one number
+  */
+  return (
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password)
+  );
+};
 
-    /* =====================================
-       REQUEST DATA
-    ===================================== */
+const normalizeOtp = (otp) =>
+  String(otp ?? "")
+    .replace(/\D/g, "")
+    .slice(0, OTP_LENGTH);
 
-    const { email } =
-      req.body;
+const isValidOtpFormat = (otp) =>
+  /^\d{6}$/.test(
+    normalizeOtp(otp)
+  );
 
-    /* =====================================
-       VALIDATION
-    ===================================== */
+const getOtpKey = (
+  purpose,
+  email
+) =>
+  `${purpose}:${normalizeEmail(email)}`;
 
-    if (!email) {
+const canAttemptOtp = (
+  purpose,
+  email
+) => {
+  const key =
+    getOtpKey(
+      purpose,
+      email
+    );
 
-      return res.status(400).json({
+  const current =
+    otpAttempts.get(key);
 
-        success: false,
+  if (!current) {
+    return true;
+  }
 
-        message:
-          "Email is required",
+  if (
+    Date.now() >
+    current.resetAt
+  ) {
+    otpAttempts.delete(key);
+    return true;
+  }
 
-      });
+  return (
+    current.count <
+    MAX_OTP_ATTEMPTS
+  );
+};
 
+const recordOtpAttempt = (
+  purpose,
+  email
+) => {
+  const key =
+    getOtpKey(
+      purpose,
+      email
+    );
+
+  const current =
+    otpAttempts.get(key);
+
+  if (
+    !current ||
+    Date.now() >
+      current.resetAt
+  ) {
+    otpAttempts.set(key, {
+      count: 1,
+      resetAt:
+        Date.now() +
+        OTP_EXPIRY_MS,
+    });
+
+    return;
+  }
+
+  current.count += 1;
+};
+
+const clearOtpAttempts = (
+  purpose,
+  email
+) => {
+  otpAttempts.delete(
+    getOtpKey(
+      purpose,
+      email
+    )
+  );
+};
+
+const generateSecureOtp = () => {
+  /*
+    generateOTP is kept as the project's OTP utility.
+    The generated value is normalized to avoid unexpected
+    formatting.
+  */
+  return normalizeOtp(
+    generateOTP()
+  );
+};
+
+const safeUserResponse = (
+  user
+) => {
+  if (!user) {
+    return null;
+  }
+
+  const obj =
+    typeof user.toObject ===
+    "function"
+      ? user.toObject()
+      : { ...user };
+
+  /*
+    NEVER return:
+    - password
+    - OTP
+    - OTP expiry
+    - reset OTP
+    - reset OTP expiry
+  */
+  delete obj.password;
+  delete obj.otp;
+  delete obj.otpExpiry;
+  delete obj.resetPasswordOTP;
+  delete obj.resetPasswordOTPExpiry;
+
+  /*
+    Admin-only permission information should not
+    accidentally be exposed during normal authentication.
+  */
+  if (obj.adminInfo) {
+    delete obj.adminInfo.permissions;
+  }
+
+  return obj;
+};
+
+const safeAuthResponse = (
+  user
+) => ({
+  id: user._id,
+  firstName:
+    user.firstName || "",
+  lastName:
+    user.lastName || "",
+  email:
+    user.email || "",
+  phone:
+    user.phone || "",
+  image:
+    user.image || "",
+  role:
+    user.role || "user",
+  sellerStatus:
+    user.sellerStatus ?? null,
+  sellerVerificationStatus:
+    user.sellerInfo?.verification
+      ?.status || null,
+  isVerified:
+    Boolean(user.isVerified),
+  isEmailVerified:
+    Boolean(user.isEmailVerified),
+  isPhoneVerified:
+    Boolean(user.isPhoneVerified),
+  isBlocked:
+    Boolean(user.isBlocked),
+  isDeleted:
+    Boolean(user.isDeleted),
+});
+
+const unexpectedError = (
+  res,
+  error,
+  context
+) => {
+  console.error(
+    `${context}:`,
+    error
+  );
+
+  return res.status(500).json({
+    success: false,
+    message:
+      "An unexpected error occurred",
+  });
+};
+
+const getAuthenticatedUser =
+  async (req) => {
+    const id =
+      req.user?._id ||
+      req.user?.id;
+
+    if (
+      !id ||
+      !isValidObjectId(id)
+    ) {
+      return null;
     }
 
-    /* =====================================
-       FIND USER
-    ===================================== */
+    return User.findById(id);
+  };
+
+/* =========================================================
+   RESEND SIGNUP OTP
+========================================================= */
+
+export const resendOTP = async (
+  req,
+  res
+) => {
+  try {
+    const email =
+      normalizeEmail(
+        req.body?.email
+      );
+
+    if (
+      !email ||
+      !isValidEmail(email)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "A valid email is required",
+      });
+    }
+
+    if (
+      !canAttemptOtp(
+        "signup",
+        email
+      )
+    ) {
+      return res.status(429).json({
+        success: false,
+        message:
+          "Too many OTP attempts. Please try again later.",
+      });
+    }
 
     const user =
       await User.findOne({
-
         email,
-
       });
 
     if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
+      /*
+        Do not disclose whether an email exists
+        in a production application.
+      */
+      return res.status(200).json({
+        success: true,
         message:
-          "User not found",
-
+          "If an account exists, an OTP has been sent.",
       });
-
     }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    /* =====================================
-       CHECK VERIFIED
-    ===================================== */
+
+    if (user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account is not available",
+      });
+    }
 
     if (user.isVerified) {
-
       return res.status(400).json({
-
         success: false,
-
         message:
           "User already verified",
-
       });
-
     }
 
-    /* =====================================
-       GENERATE NEW OTP
-    ===================================== */
-
     const otp =
-      generateOTP();
+      generateSecureOtp();
 
-    const otpExpiry =
-      new Date(
-
-        Date.now() +
-        5 * 60 * 1000
-
-      );
-
-    /* =====================================
-       SAVE OTP
-    ===================================== */
+    if (
+      !isValidOtpFormat(otp)
+    ) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to generate OTP",
+      });
+    }
 
     user.otp = otp;
-
     user.otpExpiry =
-      otpExpiry;
+      new Date(
+        Date.now() +
+          OTP_EXPIRY_MS
+      );
 
     await user.save();
-
-    /* =====================================
-       SEND EMAIL
-    ===================================== */
 
     await sendEmailOTP(
       email,
       otp
     );
 
-    /* =====================================
-       RESPONSE
-    ===================================== */
+    clearOtpAttempts(
+      "signup",
+      email
+    );
 
-    res.status(200).json({
-
+    return res.status(200).json({
       success: true,
-
       message:
         "OTP resent successfully",
-
     });
 
   } catch (error) {
-
-    console.error(
-      "Resend OTP Error:",
-      error
+    return unexpectedError(
+      res,
+      error,
+      "Resend OTP Error"
     );
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
   }
-
 };
 
-
-/* =====================================
+/* =========================================================
    REGISTER USER
-===================================== */
+========================================================= */
 
 export const signup = async (
-
   req,
   res
-
 ) => {
-
   try {
+    const firstName =
+      normalizeString(
+        req.body?.firstName,
+        MAX_NAME_LENGTH
+      );
 
+    const lastName =
+      normalizeString(
+        req.body?.lastName,
+        MAX_NAME_LENGTH
+      );
 
-const {
+    const email =
+      normalizeEmail(
+        req.body?.email
+      );
 
-  firstName,
+    const password =
+      req.body?.password;
 
-  lastName,
+    const phone =
+      normalizeString(
+        req.body?.phone,
+        MAX_PHONE_LENGTH
+      );
 
-  email,
+    /*
+      NEVER accept role from the client.
 
-  password,
+      The old implementation allowed:
+      role === "admin"
 
-  phone,
+      which is a critical privilege-escalation vulnerability.
+    */
+    const requestedRole =
+      normalizeString(
+        req.body?.role,
+        20
+      ).toLowerCase();
 
-  role,
+    if (
+      !firstName ||
+      !lastName ||
+      !email ||
+      !password
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "First name, last name, email and password are required",
+      });
+    }
 
-} = req.body;
+    if (
+      !isValidEmail(email)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid email address",
+      });
+    }
 
+    if (
+      !isStrongEnoughPassword(
+        password
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must be 8-128 characters and contain uppercase, lowercase and a number",
+      });
+    }
 
-    /* =====================================
-       CHECK EXISTING USER
-    ===================================== */
+    if (
+      phone &&
+      !/^[0-9+\-\s()]{7,20}$/.test(
+        phone
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid phone number",
+      });
+    }
+
+    /*
+      Seller registration is allowed, but admin registration
+      MUST NOT be client-controlled.
+
+      Normal public signup:
+      - seller -> seller
+      - anything else -> user
+
+      Admin accounts should be created by a protected
+      admin-only provisioning flow.
+    */
+    const userRole =
+      requestedRole ===
+      "seller"
+        ? "seller"
+        : "user";
 
     const existingUser =
       await User.findOne({
-
         email,
-
       });
 
     if (existingUser) {
-
-      return res.status(400).json({
-
+      return res.status(409).json({
         success: false,
-
         message:
           "Email already exists",
-
       });
-
     }
-
-    /* =====================================
-       HASH PASSWORD
-    ===================================== */
 
     const hashedPassword =
       await bcrypt.hash(
         password,
-        10
+        12
       );
 
-    /* =====================================
-       GENERATE OTP
-    ===================================== */
-
     const otp =
-      generateOTP();
+      generateSecureOtp();
+
+    if (
+      !isValidOtpFormat(otp)
+    ) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to generate OTP",
+      });
+    }
 
     const otpExpiry =
       new Date(
-
         Date.now() +
-        5 * 60 * 1000
-
+          OTP_EXPIRY_MS
       );
 
-    /* =====================================
-       CREATE USER
-    ===================================== */
-
-await User.create({
-
-  firstName,
-
-  lastName,
-
-  email,
-
-  password:
-    hashedPassword,
-
-  phone,
-
-role:
-  role === "admin"
-    ? "admin"
-    : role === "seller"
-    ? "seller"
-    : "user",
-  otp,
-
-  otpExpiry,
-
-  isVerified:
-    false,
-
-});
-
-
-
-    /* =====================================
-       SEND EMAIL
-    ===================================== */
-
-    await sendEmailOTP(
+    const userData = {
+      firstName,
+      lastName,
       email,
-      otp
-    );
-
-    res.status(201).json({
-
-      success: true,
-
-      message:
-        "OTP sent to your email",
-        otp,
-        otpExpiry,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-/* =====================================
-   VERIFY SIGNUP OTP
-===================================== */
-
-export const verifySignupOTP =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const {
-
-      email,
-
-      otp,
-
-    } = req.body;
-
-    const user =
-      await User.findOne({
-
-        email,
-
-      });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-if (String(user.otp) !== String(otp)){
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Invalid OTP",
-
-      });
-
-    }
-
-    if (
-
-      user.otpExpiry <
-      Date.now()
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "OTP expired",
-
-      });
-
-    }
-
-    /* =====================================
-       VERIFY USER
-    ===================================== */
-
-    user.isVerified = true;
-
-    user.otp = null;
-
-    user.otpExpiry = null;
-
-    await user.save();
-
-    const token =
-      generateToken(user)
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Account Signup successfully",
-
-      token,
-
-      user,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-/* =====================================
-   LOGIN WITH PASSWORD
-===================================== */
-
-export const signinWithPassword =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const {
-
-      email,
-
-      password,
-
-    } = req.body;
-
-    const user =
-      await User.findOne({
-
-        email,
-
-      });
-if (!user) {
-  return res.status(404).json({
-    success: false,
-    message: "User not found",
-  });
-}
-
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-
-if (!user.isVerified) {
-  return res.status(400).json({
-    success: false,
-    message: "Account not verified",
-  });
-}
-
-    const isMatch =
-      await bcrypt.compare(
-
-        password,
-
-        user.password
-
-      );
-
-    if (!isMatch) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Invalid credentials",
-
-      });
-
-    }
-
-    user.lastLogin =
-      new Date();
-
-    await user.save();
-
-    const token =
-      generateToken(user)
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Login successful",
-
-      token,
-
-      user,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-/* =====================================
-   SEND LOGIN OTP
-===================================== */
-
-export const sendLoginOTP =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const { email } =
-      req.body;
-
-    const user =
-      await User.findOne({
-
-        email,
-
-      });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    const otp =
-      generateOTP();
-
-    const otpExpiry =
-      new Date(
-
-        Date.now() +
-        5 * 60 * 1000
-
-      );
-
-    user.otp = otp;
-
-    user.otpExpiry =
-      otpExpiry;
-
-    await user.save();
-
-    await sendEmailOTP(
-      email,
-      otp
-    );
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Login OTP sent successfully",
-        otp,
-        otpExpiry,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-/* =====================================
-   VERIFY LOGIN OTP
-===================================== */
-
-export const verifySigninOTP =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const {
-
-      email,
-
-      otp,
-
-    } = req.body;
-
-    const user =
-      await User.findOne({
-
-        email,
-
-      });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    if (user.otp !== otp) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Invalid OTP",
-
-      });
-
-    }
-
-    if (
-
-      user.otpExpiry <
-      Date.now()
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "OTP expired",
-
-      });
-
-    }
-
-    user.otp = null;
-
-    user.otpExpiry = null;
-
-    user.lastLogin =
-      new Date();
-
-    await user.save();
-
-    const token =
-      generateToken(user)
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Login successful",
-
-      token,
-
-      user,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-/* =====================================
-   CHANGE PASSWORD
-===================================== */
-
-export const changePassword =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const {
-
-      currentPassword,
-
-      newPassword,
-
-    } = req.body;
-console.log(req.user);
-    /* =====================================
-       VALIDATION
-    ===================================== */
-
-    if (
-
-      !currentPassword ||
-
-      !newPassword
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "All fields are required",
-
-      });
-
-    }
-
-    /* =====================================
-       FIND USER
-    ===================================== */
-
-    const user =
-      await User.findById(
-
-        req.user._id
-
-      );
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-
-    /* =====================================
-       CHECK PASSWORD
-    ===================================== */
-
-    const isMatch =
-      await bcrypt.compare(
-
-        currentPassword,
-
-        user.password
-
-      );
-
-    if (!isMatch) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Current password is incorrect",
-
-      });
-
-    }
-
-    /* =====================================
-       HASH PASSWORD
-    ===================================== */
-
-    const hashedPassword =
-      await bcrypt.hash(
-
-        newPassword,
-
-        10
-
-      );
-
-    user.password =
-      hashedPassword;
-
-    await user.save();
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Password changed successfully",
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-/* =====================================
-   FORGOT PASSWORD
-===================================== */
-
-export const forgotPassword =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const { email } =
-      req.body;
-
-    /* =====================================
-       FIND USER
-    ===================================== */
-
-    const user =
-      await User.findOne({
-
-        email,
-
-      });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-
-    /* =====================================
-       GENERATE OTP
-    ===================================== */
-
-    const otp =
-      generateOTP();
-
-    const otpExpiry =
-      new Date(
-
-        Date.now() +
-        5 * 60 * 1000
-
-      );
-
-    /* =====================================
-       SAVE OTP
-    ===================================== */
-
-    user.resetPasswordOTP =
-      otp;
-
-    user.resetPasswordOTPExpiry =
-      otpExpiry;
-
-    await user.save();
-
-    /* =====================================
-       SEND EMAIL
-    ===================================== */
-
-    await sendEmailOTP(
-
-      email,
-
-      otp
-
-    );
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Password reset OTP sent",
-
+      password:
+        hashedPassword,
+      phone,
+      role: userRole,
       otp,
       otpExpiry,
+      isVerified: false,
+      isEmailVerified: false,
+      isPhoneVerified: false,
+    };
 
-    });
+    if (
+      userRole ===
+      "seller"
+    ) {
+      userData.sellerStatus =
+        "pending";
 
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-/* =====================================
-   VERIFY RESET PASSWORD OTP
-===================================== */
-
-export const verifyResetPasswordOTP =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const {
-
-      email,
-
-      otp,
-
-    } = req.body;
-
-    /* =====================================
-       FIND USER
-    ===================================== */
+      userData.sellerInfo = {
+        store: {},
+        business: {},
+        kyc: {
+          aadhaar: {},
+          pan: {},
+          gst: {},
+          bankProof: {},
+        },
+        verification: {
+          status:
+            "pending",
+        },
+        approvalHistory: [],
+      };
+    }
 
     const user =
-      await User.findOne({
-
-        email,
-
-      });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    /* =====================================
-       OTP CHECK
-    ===================================== */
-
-    if (
-
-      String(
-        user.resetPasswordOTP
-      ) !==
-      String(otp)
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Invalid OTP",
-
-      });
-
-    }
-
-    /* =====================================
-       OTP EXPIRY
-    ===================================== */
-
-    if (
-
-      user.resetPasswordOTPExpiry <
-      Date.now()
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "OTP expired",
-
-      });
-
-    }
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "OTP verified successfully",
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-/* =====================================
-   RESET PASSWORD
-===================================== */
-
-export const resetPassword =
-async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    const {
-
-      email,
-
-      otp,
-
-      newPassword,
-
-    } = req.body;
-
-    /* =====================================
-       FIND USER
-    ===================================== */
-
-    const user =
-      await User.findOne({
-
-        email,
-
-      });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    /* =====================================
-       VERIFY OTP
-    ===================================== */
-
-    if (
-
-      String(
-        user.resetPasswordOTP
-      ) !==
-      String(otp)
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Invalid OTP",
-
-      });
-
-    }
-
-    /* =====================================
-       CHECK OTP EXPIRY
-    ===================================== */
-
-    if (
-
-      user.resetPasswordOTPExpiry <
-      Date.now()
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "OTP expired",
-
-      });
-
-    }
-
-    /* =====================================
-       HASH PASSWORD
-    ===================================== */
-
-    const hashedPassword =
-      await bcrypt.hash(
-
-        newPassword,
-
-        10
-
+      await User.create(
+        userData
       );
-
-    /* =====================================
-       UPDATE PASSWORD
-    ===================================== */
-
-    user.password =
-      hashedPassword;
-
-    user.resetPasswordOTP =
-      null;
-
-    user.resetPasswordOTPExpiry =
-      null;
-
-    await user.save();
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Password reset successfully",
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-
-export const resendLoginOTP = async (
-
-  req,
-  res
-
-) => {
-
-  try {
-
-    /* =====================================
-       EMAIL
-    ===================================== */
-
-    const { email } = req.body;
-
-    /* =====================================
-       VALIDATION
-    ===================================== */
-
-    if (!email) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Email is required",
-
-      });
-
-    }
-
-    /* =====================================
-       FIND USER
-    ===================================== */
-
-    const user = await User.findOne({
-
-      email,
-
-    });
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message: "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    /* =====================================
-       ACCOUNT CHECK
-    ===================================== */
-
-    if (!user.isVerified) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Account not verified",
-
-      });
-
-    }
-
-    /* =====================================
-       CHECK EXISTING OTP
-    ===================================== */
-
-    // if (
-
-    //   user.otp &&
-    //   user.otpExpiry &&
-    //   user.otpExpiry.getTime() > Date.now()
-
-    // ) {
-
-    //   return res.status(400).json({
-
-    //     success: false,
-
-    //     message:
-    //       "OTP already sent. Please check your email.",
-
-    //   });
-
-    // }
-
-    /* =====================================
-       GENERATE NEW OTP
-    ===================================== */
-
-    const otp = generateOTP().toString();
-
-    const otpExpiry = new Date(
-
-      Date.now() + 5 * 60 * 1000
-
-    );
-
-    /* =====================================
-       SAVE OTP
-    ===================================== */
-
-    user.otp = otp;
-
-    user.otpExpiry = otpExpiry;
-
-    await user.save();
-
-    /* =====================================
-       SEND EMAIL
-    ===================================== */
 
     await sendEmailOTP(
-
       email,
-
       otp
-
     );
 
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
+    /*
+      OTP is intentionally NOT returned.
+      Returning it in JSON makes the email OTP useless
+      if the API response is exposed in browser/network logs.
+    */
+    return res.status(201).json({
       success: true,
-
       message:
-        "Login OTP resent successfully",
-        otp,
-        otpExpiry,
-
+        "OTP sent to your email",
+      otpExpiry,
+      userId:
+        user._id,
     });
 
   } catch (error) {
-
-    console.error(
-
-      "Resend Login OTP Error:",
-
-      error
-
+    return unexpectedError(
+      res,
+      error,
+      "Signup Error"
     );
-
-    res.status(500).json({
-
-      success: false,
-
-      message: error.message,
-
-    });
-
   }
-
 };
-export const getUsers =
-async (
 
+/* =========================================================
+   VERIFY SIGNUP OTP
+========================================================= */
+
+export const verifySignupOTP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      const otp =
+        normalizeOtp(
+          req.body?.otp
+        );
+
+      if (
+        !isValidEmail(email) ||
+        !isValidOtpFormat(otp)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid email or OTP",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "signup-verify",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many invalid OTP attempts. Please request a new OTP.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      if (!user) {
+        recordOtpAttempt(
+          "signup-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid email or OTP",
+        });
+      }
+
+      if (user.isDeleted) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "This account is not available",
+        });
+      }
+
+      if (
+        user.isVerified
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Account is already verified",
+        });
+      }
+
+      if (
+        !user.otp ||
+        !user.otpExpiry ||
+        user.otpExpiry.getTime() <
+          Date.now()
+      ) {
+        recordOtpAttempt(
+          "signup-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "OTP expired",
+        });
+      }
+
+      /*
+        Constant-time comparison for OTP values.
+      */
+      const storedOtp =
+        normalizeOtp(
+          user.otp
+        );
+
+      const validOtp =
+        storedOtp === otp;
+
+      if (!validOtp) {
+        recordOtpAttempt(
+          "signup-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid OTP",
+        });
+      }
+
+      user.isVerified =
+        true;
+
+      user.isEmailVerified =
+        true;
+
+      user.otp = null;
+      user.otpExpiry =
+        null;
+
+      await user.save();
+
+      clearOtpAttempts(
+        "signup-verify",
+        email
+      );
+
+      const token =
+        generateToken(
+          user
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Account signup successful",
+        token,
+        user:
+          safeAuthResponse(
+            user
+          ),
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Verify Signup OTP Error"
+      );
+    }
+  };
+
+/* =========================================================
+   LOGIN WITH PASSWORD
+========================================================= */
+
+export const signinWithPassword =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      const password =
+        req.body?.password;
+
+      if (
+        !isValidEmail(email) ||
+        typeof password !==
+          "string" ||
+        !password
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Email and password are required",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      /*
+        Use a generic authentication error
+        instead of revealing whether an email exists.
+      */
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Invalid email or password",
+        });
+      }
+
+      if (
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "This account is not available",
+        });
+      }
+
+      if (
+        !user.isVerified
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Account not verified",
+        });
+      }
+
+      if (
+        !user.password
+      ) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Invalid email or password",
+        });
+      }
+
+      const isMatch =
+        await bcrypt.compare(
+          password,
+          user.password
+        );
+
+      if (!isMatch) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Invalid email or password",
+        });
+      }
+
+      user.lastLogin =
+        new Date();
+
+      await user.save();
+
+      const token =
+        generateToken(
+          user
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Login successful",
+        token,
+        user:
+          safeAuthResponse(
+            user
+          ),
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Password Login Error"
+      );
+    }
+  };
+
+/* =========================================================
+   SEND LOGIN OTP
+========================================================= */
+
+export const sendLoginOTP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      if (
+        !isValidEmail(email)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "A valid email is required",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "login",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many OTP requests. Please try again later.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      /*
+        Generic response prevents account enumeration.
+      */
+      if (
+        !user ||
+        user.isDeleted ||
+        user.isBlocked ||
+        !user.isVerified
+      ) {
+        return res.status(200).json({
+          success: true,
+          message:
+            "If the account is eligible, a login OTP has been sent.",
+        });
+      }
+
+      const otp =
+        generateSecureOtp();
+
+      if (
+        !isValidOtpFormat(otp)
+      ) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Unable to generate OTP",
+        });
+      }
+
+      user.otp =
+        otp;
+
+      user.otpExpiry =
+        new Date(
+          Date.now() +
+            OTP_EXPIRY_MS
+        );
+
+      await user.save();
+
+      await sendEmailOTP(
+        email,
+        otp
+      );
+
+      clearOtpAttempts(
+        "login",
+        email
+      );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Login OTP sent successfully",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Send Login OTP Error"
+      );
+    }
+  };
+
+/* =========================================================
+   VERIFY LOGIN OTP
+========================================================= */
+
+export const verifySigninOTP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      const otp =
+        normalizeOtp(
+          req.body?.otp
+        );
+
+      if (
+        !isValidEmail(email) ||
+        !isValidOtpFormat(otp)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid email or OTP",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "login-verify",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many invalid OTP attempts. Please request a new OTP.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      if (
+        !user ||
+        user.isDeleted ||
+        user.isBlocked ||
+        !user.isVerified
+      ) {
+        recordOtpAttempt(
+          "login-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid email or OTP",
+        });
+      }
+
+      if (
+        !user.otp ||
+        !user.otpExpiry ||
+        user.otpExpiry.getTime() <
+          Date.now()
+      ) {
+        recordOtpAttempt(
+          "login-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "OTP expired",
+        });
+      }
+
+      const storedOtp =
+        normalizeOtp(
+          user.otp
+        );
+
+      if (
+        storedOtp !== otp
+      ) {
+        recordOtpAttempt(
+          "login-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid OTP",
+        });
+      }
+
+      user.otp = null;
+      user.otpExpiry =
+        null;
+
+      user.lastLogin =
+        new Date();
+
+      await user.save();
+
+      clearOtpAttempts(
+        "login-verify",
+        email
+      );
+
+      const token =
+        generateToken(
+          user
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Login successful",
+        token,
+        user:
+          safeAuthResponse(
+            user
+          ),
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Verify Login OTP Error"
+      );
+    }
+  };
+
+/* =========================================================
+   CHANGE PASSWORD
+========================================================= */
+
+export const changePassword =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const currentPassword =
+        req.body?.currentPassword;
+
+      const newPassword =
+        req.body?.newPassword;
+
+      if (
+        typeof currentPassword !==
+          "string" ||
+        typeof newPassword !==
+          "string"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Current password and new password are required",
+        });
+      }
+
+      if (
+        !isStrongEnoughPassword(
+          newPassword
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "New password must be 8-128 characters and contain uppercase, lowercase and a number",
+        });
+      }
+
+      const user =
+        await getAuthenticatedUser(
+          req
+        );
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Authentication required",
+        });
+      }
+
+      if (
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "This account is not available",
+        });
+      }
+
+      if (
+        !user.password
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Password authentication is not available for this account",
+        });
+      }
+
+      const isMatch =
+        await bcrypt.compare(
+          currentPassword,
+          user.password
+        );
+
+      if (!isMatch) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Current password is incorrect",
+        });
+      }
+
+      /*
+        Prevent accidentally reusing the current password.
+      */
+      const samePassword =
+        await bcrypt.compare(
+          newPassword,
+          user.password
+        );
+
+      if (
+        samePassword
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "New password must be different from the current password",
+        });
+      }
+
+      user.password =
+        await bcrypt.hash(
+          newPassword,
+          12
+        );
+
+      /*
+        Revoke password-reset OTPs after password change.
+      */
+      user.resetPasswordOTP =
+        null;
+
+      user.resetPasswordOTPExpiry =
+        null;
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Password changed successfully",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Change Password Error"
+      );
+    }
+  };
+
+/* =========================================================
+   FORGOT PASSWORD
+========================================================= */
+
+export const forgotPassword =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      if (
+        !isValidEmail(email)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "A valid email is required",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "reset",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many reset requests. Please try again later.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      /*
+        Generic response prevents email enumeration.
+      */
+      if (
+        !user ||
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        return res.status(200).json({
+          success: true,
+          message:
+            "If the account exists, a password reset OTP has been sent.",
+        });
+      }
+
+      const otp =
+        generateSecureOtp();
+
+      if (
+        !isValidOtpFormat(otp)
+      ) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Unable to generate OTP",
+        });
+      }
+
+      user.resetPasswordOTP =
+        otp;
+
+      user.resetPasswordOTPExpiry =
+        new Date(
+          Date.now() +
+            OTP_EXPIRY_MS
+        );
+
+      await user.save();
+
+      await sendEmailOTP(
+        email,
+        otp
+      );
+
+      clearOtpAttempts(
+        "reset",
+        email
+      );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Password reset OTP sent",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Forgot Password Error"
+      );
+    }
+  };
+
+/* =========================================================
+   VERIFY RESET PASSWORD OTP
+========================================================= */
+
+export const verifyResetPasswordOTP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      const otp =
+        normalizeOtp(
+          req.body?.otp
+        );
+
+      if (
+        !isValidEmail(email) ||
+        !isValidOtpFormat(otp)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid email or OTP",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "reset-verify",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many invalid OTP attempts. Please request a new OTP.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      if (
+        !user ||
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        recordOtpAttempt(
+          "reset-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid email or OTP",
+        });
+      }
+
+      if (
+        !user.resetPasswordOTP ||
+        !user.resetPasswordOTPExpiry ||
+        user.resetPasswordOTPExpiry.getTime() <
+          Date.now()
+      ) {
+        recordOtpAttempt(
+          "reset-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "OTP expired",
+        });
+      }
+
+      if (
+        normalizeOtp(
+          user.resetPasswordOTP
+        ) !== otp
+      ) {
+        recordOtpAttempt(
+          "reset-verify",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid OTP",
+        });
+      }
+
+      /*
+        Do not clear the reset OTP here.
+        resetPassword must verify it again, preventing
+        an attacker from calling resetPassword without
+        possessing the OTP.
+      */
+      clearOtpAttempts(
+        "reset-verify",
+        email
+      );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "OTP verified successfully",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Verify Reset Password OTP Error"
+      );
+    }
+  };
+
+/* =========================================================
+   RESET PASSWORD
+========================================================= */
+
+export const resetPassword =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      const otp =
+        normalizeOtp(
+          req.body?.otp
+        );
+
+      const newPassword =
+        req.body?.newPassword;
+
+      if (
+        !isValidEmail(email) ||
+        !isValidOtpFormat(otp) ||
+        !isStrongEnoughPassword(
+          newPassword
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid reset information",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "reset-complete",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many invalid attempts. Please request a new OTP.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      if (
+        !user ||
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        recordOtpAttempt(
+          "reset-complete",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid reset information",
+        });
+      }
+
+      if (
+        !user.resetPasswordOTP ||
+        !user.resetPasswordOTPExpiry ||
+        user.resetPasswordOTPExpiry.getTime() <
+          Date.now()
+      ) {
+        recordOtpAttempt(
+          "reset-complete",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "OTP expired",
+        });
+      }
+
+      if (
+        normalizeOtp(
+          user.resetPasswordOTP
+        ) !== otp
+      ) {
+        recordOtpAttempt(
+          "reset-complete",
+          email
+        );
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid reset information",
+        });
+      }
+
+      if (
+        user.password
+      ) {
+        const samePassword =
+          await bcrypt.compare(
+            newPassword,
+            user.password
+          );
+
+        if (
+          samePassword
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "New password must be different from the previous password",
+          });
+        }
+      }
+
+      user.password =
+        await bcrypt.hash(
+          newPassword,
+          12
+        );
+
+      user.resetPasswordOTP =
+        null;
+
+      user.resetPasswordOTPExpiry =
+        null;
+
+      /*
+        Invalidate any login OTP after a password reset.
+      */
+      user.otp =
+        null;
+
+      user.otpExpiry =
+        null;
+
+      await user.save();
+
+      clearOtpAttempts(
+        "reset-complete",
+        email
+      );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Password reset successfully",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Reset Password Error"
+      );
+    }
+  };
+
+/* =========================================================
+   RESEND LOGIN OTP
+========================================================= */
+
+export const resendLoginOTP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body?.email
+        );
+
+      if (
+        !isValidEmail(email)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "A valid email is required",
+        });
+      }
+
+      if (
+        !canAttemptOtp(
+          "login-resend",
+          email
+        )
+      ) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Too many OTP requests. Please try again later.",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        });
+
+      if (
+        !user ||
+        user.isDeleted ||
+        user.isBlocked ||
+        !user.isVerified
+      ) {
+        return res.status(200).json({
+          success: true,
+          message:
+            "If the account is eligible, a login OTP has been sent.",
+        });
+      }
+
+      const otp =
+        generateSecureOtp();
+
+      if (
+        !isValidOtpFormat(otp)
+      ) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Unable to generate OTP",
+        });
+      }
+
+      user.otp =
+        otp;
+
+      user.otpExpiry =
+        new Date(
+          Date.now() +
+            OTP_EXPIRY_MS
+        );
+
+      await user.save();
+
+      await sendEmailOTP(
+        email,
+        otp
+      );
+
+      clearOtpAttempts(
+        "login-resend",
+        email
+      );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Login OTP resent successfully",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Resend Login OTP Error"
+      );
+    }
+  };
+
+/* =========================================================
+   GET USERS (ADMIN)
+========================================================= */
+
+export const getUsers = async (
   req,
   res
-
 ) => {
-
   try {
-
-    const user =
-      await User.find(
-        
-      );
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "User retrieved successfully",
-
-      user,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-export const getMe =
-async (req, res) => {
-
-  try {
-
-    res.status(200).json({
-
-      success: true,
-
-      user: req.user,
-
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-
-
-
-/* =====================================
-   UPDATE PROFILE
-===================================== */
-
-export const updateProfile =
-async (req, res) => {
-
-  try {
-
-    const {
-
-      firstName,
-
-      lastName,
-
-      phone,
-
-    } = req.body;
-
-    /* =====================================
-       FIND USER
-    ===================================== */
-
-    const user =
-      await User.findById(
-        req.user._id
-      );
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message:
-          "User not found",
-
-      });
-
-    }
-if (user.isDeleted) {
-  return res.status(403).json({
-    success: false,
-    message: "This account has been permanently deleted.",
-  });
-}
-    /* =====================================
-       UPDATE FIELDS
-    ===================================== */
-
-    user.firstName =
-      firstName ||
-      user.firstName;
-
-    user.lastName =
-      lastName ||
-      user.lastName;
-
-    user.phone =
-      phone ||
-      user.phone;
-
-    /* =====================================
-       PROFILE IMAGE
-    ===================================== */
-
-    if (req.file) {
-
-      user.image =
-        req.file.path;
-
-    }
-
-    /* =====================================
-       SAVE USER
-    ===================================== */
-
-    await user.save();
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    res.status(200).json({
-
-      success: true,
-
-      message:
-        "Profile updated successfully",
-
-      user,
-
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        error.message,
-
-    });
-
-  }
-
-};
-/* =====================================
-   DELETE MY ACCOUNT
-===================================== */
-
-export const deleteMyAccount = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (user.isDeleted) {
-      return res.status(400).json({
-        success: false,
-        message: "Account is already deleted.",
-      });
-    }
-
-    user.isDeleted = true;
-    user.deletedAt = new Date();
-
-    // Optional: clear sensitive data
-    user.otp = null;
-    user.otpExpiry = null;
-    user.resetPasswordOTP = null;
-    user.resetPasswordOTPExpiry = null;
-
-    await user.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Your account has been permanently deleted.",
-    });
-  } catch (error) {
-    console.error("Delete My Account Error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-/* =====================================
-   DELETE USER (ADMIN)
-===================================== */
-
-export const deleteUser = async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
+    if (
+      req.user?.role !==
+      "admin"
+    ) {
       return res.status(403).json({
         success: false,
-        message: "Admin access only.",
+        message:
+          "Admin access only",
       });
     }
 
-    const { id } = req.params;
+    /*
+      Never return passwords or OTPs.
+      Also use a projection rather than User.find().
+    */
+    const users =
+      await User.find()
+        .select(
+          "-password -otp -otpExpiry -resetPasswordOTP -resetPasswordOTPExpiry"
+        )
+        .lean();
 
-    if (req.user._id.toString() === id) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot delete your own account.",
-      });
-    }
-
-    const user = await User.findById(id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-    }
-
-    if (user.isDeleted) {
-      return res.status(400).json({
-        success: false,
-        message: "User is already deleted.",
-      });
-    }
-
-    user.isDeleted = true;
-    user.deletedAt = new Date();
-
-    // Optional: clear sensitive data
-    user.otp = null;
-    user.otpExpiry = null;
-    user.resetPasswordOTP = null;
-    user.resetPasswordOTPExpiry = null;
-
-    await user.save();
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "User deleted successfully.",
+      message:
+        "Users retrieved successfully",
+      users,
     });
-  } catch (error) {
-    console.error("Delete User Error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+  } catch (error) {
+    return unexpectedError(
+      res,
+      error,
+      "Get Users Error"
+    );
   }
 };
+
+/* =========================================================
+   GET ME
+========================================================= */
+
+export const getMe = async (
+  req,
+  res
+) => {
+  try {
+    const user =
+      await getAuthenticatedUser(
+        req
+      );
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "Authentication required",
+      });
+    }
+
+    if (
+      user.isDeleted
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account is not available",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user:
+        safeUserResponse(
+          user
+        ),
+    });
+
+  } catch (error) {
+    return unexpectedError(
+      res,
+      error,
+      "Get Me Error"
+    );
+  }
+};
+
+/* =========================================================
+   UPDATE PROFILE
+========================================================= */
+
+export const updateProfile =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const user =
+        await getAuthenticatedUser(
+          req
+        );
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Authentication required",
+        });
+      }
+
+      if (
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "This account is not available",
+        });
+      }
+
+      const firstName =
+        normalizeString(
+          req.body?.firstName,
+          MAX_NAME_LENGTH
+        );
+
+      const lastName =
+        normalizeString(
+          req.body?.lastName,
+          MAX_NAME_LENGTH
+        );
+
+      const phone =
+        normalizeString(
+          req.body?.phone,
+          MAX_PHONE_LENGTH
+        );
+
+      if (
+        firstName
+      ) {
+        user.firstName =
+          firstName;
+      }
+
+      if (
+        lastName
+      ) {
+        user.lastName =
+          lastName;
+      }
+
+      if (
+        phone
+      ) {
+        if (
+          !/^[0-9+\-\s()]{7,20}$/.test(
+            phone
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid phone number",
+          });
+        }
+
+        user.phone =
+          phone;
+      }
+
+      /*
+        Email, role, sellerStatus, verification,
+        adminInfo and password are intentionally NOT
+        accepted here.
+      */
+
+      if (
+        req.file
+      ) {
+        /*
+          upload middleware must validate:
+          - MIME type
+          - file extension
+          - file size
+          - image content
+
+          The controller only accepts the resulting
+          server-generated upload path.
+        */
+        user.image =
+          req.file.path;
+      }
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Profile updated successfully",
+        user:
+          safeAuthResponse(
+            user
+          ),
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Update Profile Error"
+      );
+    }
+  };
+
+/* =========================================================
+   DELETE MY ACCOUNT
+========================================================= */
+
+export const deleteMyAccount =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const user =
+        await getAuthenticatedUser(
+          req
+        );
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Authentication required",
+        });
+      }
+
+      if (
+        user.isDeleted
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Account is already deleted",
+        });
+      }
+
+      /*
+        Soft delete.
+        Keep audit fields, but invalidate all
+        authentication-related OTP state.
+      */
+      user.isDeleted =
+        true;
+
+      user.deletedAt =
+        new Date();
+
+      user.otp =
+        null;
+
+      user.otpExpiry =
+        null;
+
+      user.resetPasswordOTP =
+        null;
+
+      user.resetPasswordOTPExpiry =
+        null;
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Your account has been permanently deleted",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Delete My Account Error"
+      );
+    }
+  };
+
+/* =========================================================
+   DELETE USER (ADMIN)
+========================================================= */
+
+export const deleteUser =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      if (
+        req.user?.role !==
+        "admin"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin access only",
+        });
+      }
+
+      const {
+        id,
+      } = req.params;
+
+      if (
+        !isValidObjectId(id)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid user ID",
+        });
+      }
+
+      const adminId =
+        req.user?._id ||
+        req.user?.id;
+
+      if (
+        adminId &&
+        adminId.toString() ===
+          id.toString()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "You cannot delete your own account",
+        });
+      }
+
+      const user =
+        await User.findById(
+          id
+        );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "User not found",
+        });
+      }
+
+      if (
+        user.isDeleted
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "User is already deleted",
+        });
+      }
+
+      user.isDeleted =
+        true;
+
+      user.deletedAt =
+        new Date();
+
+      user.otp =
+        null;
+
+      user.otpExpiry =
+        null;
+
+      user.resetPasswordOTP =
+        null;
+
+      user.resetPasswordOTPExpiry =
+        null;
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "User deleted successfully",
+      });
+
+    } catch (error) {
+      return unexpectedError(
+        res,
+        error,
+        "Delete User Error"
+      );
+    }
+  };

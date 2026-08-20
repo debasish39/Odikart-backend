@@ -14,92 +14,173 @@ const storage =
   new CloudinaryStorage({
 
     cloudinary,
+params: async (req, file) => {
 
-    params: async (
-      req,
-      file
-    ) => {
+  // ==========================
+  // PRODUCT IMAGES
+  // ==========================
 
-      /* =====================================
-         IMAGE
-      ===================================== */
+  if (
+    file.fieldname === "images" ||
+    file.fieldname === "image"
+  ) {
 
-      if (
-        file.fieldname === "images" ||
+    return {
+      folder: "eshop/products/images",
+      resource_type: "image",
+      allowed_formats: ["jpg","jpeg","png","webp"]
+    };
 
-        file.fieldname === "image"
-      ) {
+  }
 
-        return {
+  // ==========================
+  // PRODUCT VIDEOS
+  // ==========================
 
-          folder:
-            "eshop/reviews/images",
+  if(file.fieldname==="videos"){
 
-          resource_type:
-            "image",
+    return{
 
-          allowed_formats: [
-            "jpg",
-            "jpeg",
-            "png",
-            "webp",
-          ],
+      folder:"eshop/products/videos",
 
-          transformation: [
-            {
-              width: 800,
-              height: 800,
-              crop: "limit",
-              quality: "auto",
-            },
-          ],
-        };
-      }
+      resource_type:"video",
 
-      /* =====================================
-         VIDEO
-      ===================================== */
+      allowed_formats:[
+        "mp4",
+        "mov",
+        "webm"
+      ]
 
-      if (
-        file.fieldname === "videos"
-      ) {
+    }
 
-        return {
+  }
 
-          folder:
-            "eshop/reviews/videos",
+  // ==========================
+  // PROFILE IMAGE
+  // ==========================
 
-          resource_type:
-            "video",
+  if(file.fieldname==="profile"){
 
-          allowed_formats: [
-            "mp4",
-            "mov",
-            "webm",
-          ],
-        };
-      }
+    return{
 
-      /* =====================================
-         PROFILE IMAGE
-      ===================================== */
+      folder:"eshop/profile",
 
-      return {
+      resource_type:"image"
 
-        folder:
-          "eshop/profile",
+    }
 
-        resource_type:
-          "image",
+  }
 
-        allowed_formats: [
-          "jpg",
-          "jpeg",
-          "png",
-          "webp",
-        ],
-      };
-    },
+  // ==========================
+  // SHOP LOGO
+  // ==========================
+
+  if(file.fieldname==="shopLogo"){
+
+    return{
+
+      folder:"eshop/seller/shopLogo",
+
+      resource_type:"image"
+
+    }
+
+  }
+
+  // ==========================
+  // SHOP BANNER
+  // ==========================
+
+  if(file.fieldname==="shopBanner"){
+
+    return{
+
+      folder:"eshop/seller/shopBanner",
+
+      resource_type:"image"
+
+    }
+
+  }
+
+  // ==========================
+  // AADHAAR
+  // ==========================
+
+  if(
+      file.fieldname==="aadhaarFront" ||
+      file.fieldname==="aadhaarBack"
+  ){
+
+    return{
+
+      folder:"eshop/seller/kyc/aadhaar",
+
+      resource_type:"image"
+
+    }
+
+  }
+
+  // ==========================
+  // PAN
+  // ==========================
+
+  if(file.fieldname==="panImage"){
+
+    return{
+
+      folder:"eshop/seller/kyc/pan",
+
+      resource_type:"image"
+
+    }
+
+  }
+
+  // ==========================
+  // GST
+  // ==========================
+
+  if(file.fieldname==="gstCertificate"){
+
+    return{
+
+      folder:"eshop/seller/kyc/gst",
+
+      resource_type:"image"
+
+    }
+
+  }
+
+  // ==========================
+  // BANK
+  // ==========================
+
+  if(file.fieldname==="bankProof"){
+
+    return{
+
+      folder:"eshop/seller/kyc/bank",
+
+      resource_type:"image"
+
+    }
+
+  }
+
+  return{
+
+    folder:"eshop/misc",
+
+    resource_type:"auto"
+
+  }
+
+}
+   
+  
   });
 
 /* =====================================

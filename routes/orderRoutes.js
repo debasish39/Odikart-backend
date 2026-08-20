@@ -12,7 +12,9 @@ import {
   updateTracking,
   changeCourier,
   getCourierDetails,
-  getSellerAnalytics,requestReturn,
+  getSellerAnalytics,
+  getSellerOrders,
+  requestReturn,
   approveReturn,
   rejectReturn,
   assignReturnCourier,
@@ -58,7 +60,7 @@ router.get(
 /* Track Order */
 
 router.get(
-  "/track-order/:id",
+  "/track-order/:orderNumber",
   authMiddleware,
   authorizeRoles("user", "seller", "admin"),
   trackOrder
@@ -214,10 +216,32 @@ router.put(
 ===================================================== */
 
 router.get(
-  "/seller-analytics",
+  "/order/seller/orders",
+  authMiddleware,
+  authorizeRoles("seller"),
+  getSellerOrders
+);
+
+/* Seller Analytics */
+
+router.get(
+  "/seller/orders/analytics",
   authMiddleware,
   authorizeRoles("seller"),
   getSellerAnalytics
+);
+
+/* =====================================================
+   RETURN (SELLER)
+===================================================== */
+
+/* Request Return */
+
+router.put(
+  "/return/request/:orderId",
+  authMiddleware,
+  authorizeRoles("seller"),
+  requestReturn
 );
 
 export default router;

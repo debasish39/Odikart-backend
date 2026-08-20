@@ -255,8 +255,7 @@ payment: {
   status: {
     type: String,
     enum: ["Pending", "Paid", "Failed", "Refunded"],
-    default: "Pending",
-    index: true,
+    default: "Pending"
   },
 
   transactionId: {
@@ -524,8 +523,11 @@ reasonType: {
       ref: "Product"
     },
 
-    sku: String,
-
+  variantSku: {
+      type: String,
+      required: true,
+      trim: true
+    },
     title: String,
 
     slug: String,
@@ -623,6 +625,31 @@ cancellation: {
     default: "",
   },
 },
+/* =====================================
+   INVENTORY
+===================================== */
+
+stock: {
+  deducted: {
+    type: Boolean,
+    default: false,
+  },
+
+  restored: {
+    type: Boolean,
+    default: false,
+  },
+
+  deductedAt: {
+    type: Date,
+    default: null,
+  },
+
+  restoredAt: {
+    type: Date,
+    default: null,
+  },
+},
 timeline: {
 
   confirmedAt: Date,
@@ -661,3 +688,7 @@ orderSchema.index({ status: 1 });
 // orderSchema.index({ paymentStatus: 1 });
 
 export default mongoose.model("Order", orderSchema);
+orderSchema.index({ userId: 1, createdAt: -1 });
+orderSchema.index({ "items.sellerId": 1, createdAt: -1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+orderSchema.index({ "payment.status": 1 });
