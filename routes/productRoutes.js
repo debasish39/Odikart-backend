@@ -17,7 +17,7 @@ import {
   approveProduct,
   rejectProduct,
   blockProduct,
-} from "../controllers/ProductController.js";
+} from "../controllers/productController.js";
 
 import upload from "../middleware/uploadMiddleware.js";
 
