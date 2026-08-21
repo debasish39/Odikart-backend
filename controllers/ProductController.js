@@ -1398,7 +1398,6 @@ export const updateVariantStock = async (
       cleanString(variantSku, 100);
 
     const numericStock = Number(stock);
-
     if (
       stock === undefined ||
       !Number.isInteger(numericStock) ||

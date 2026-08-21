@@ -26,7 +26,6 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/roleMiddleware.js";
 
 import sellerVerificationMiddleware from "../middleware/sellerVerificationMiddleware.js";
-
 const router = express.Router();
 
 /* =====================================

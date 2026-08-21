@@ -10,7 +10,6 @@ import {
   deleteCategory,
   searchCategory,
 } from "../controllers/categoryController.js";
-
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/roleMiddleware.js";
 
