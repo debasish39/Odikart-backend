@@ -6,6 +6,7 @@ import {
   updateUserPassword,
   deleteUser,
   deleteMyAccount,
+  applySeller,
   approveSeller,
   rejectSeller,
   getSellerAnalytics,
@@ -20,6 +21,7 @@ import {
   verifySellerDocuments,
   completeSellerProfile,
   uploadSellerDocuments,
+  switchMode,
 
 } from "../controllers/userController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -61,6 +63,15 @@ router.delete(
   authorizeRoles("admin"),
   deleteUser
 );
+/* =====================================
+   SELLER APPLICATION
+===================================== */
+
+router.post(
+  "/seller/apply",
+  authMiddleware,
+  applySeller
+);
 router.put(
   "/seller/complete-profile",
   authMiddleware,
@@ -71,7 +82,6 @@ router.put(
 router.put(
   "/seller/upload-documents",
   authMiddleware,
-  authorizeRoles("seller"),
   upload.fields([
     { name: "shopLogo", maxCount: 1 },
     { name: "shopBanner", maxCount: 1 },
@@ -111,5 +121,14 @@ router.delete(
   "/me",
   authMiddleware,
   deleteMyAccount
+);
+/* =====================================
+   SWITCH CUSTOMER / SELLER MODE
+===================================== */
+
+router.put(
+  "/active-mode",
+  authMiddleware,
+  switchMode
 );
 export default router;

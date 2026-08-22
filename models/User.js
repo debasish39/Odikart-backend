@@ -130,7 +130,11 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "seller", "admin"],
       default: "user",
     },
-
+activeMode: {
+  type: String,
+  enum: ["customer", "seller"],
+  default: "customer",
+},
     sellerStatus: {
       type: String,
       enum: ["none", "pending", "approved", "rejected", "suspended"],
@@ -349,6 +353,7 @@ const userSchema = new mongoose.Schema(
           action: {
             type: String,
             enum: [
+              "applied",
               "verified",
               "approved",
               "rejected",
