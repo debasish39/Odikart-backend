@@ -242,53 +242,396 @@ const validateVariants = (variants) => {
 };
 
 export const createProduct = async (req, res) => {
+  const requestId =
+    `PRODUCT-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+  const startedAt = Date.now();
+
+  console.log("\n");
+  console.log("==================================================");
+  console.log(`🚀 ${requestId} CREATE PRODUCT REQUEST START`);
+  console.log("==================================================");
+
   try {
-    const sellerId = req.user.id;
 
-    /* =====================================
-       SELLER CHECK
-    ===================================== */
+    /* =====================================================
+       1. REQUEST INFORMATION
+    ===================================================== */
 
-    const seller = await User.findById(sellerId);
+    console.log("\n========== 1. REQUEST ==========");
 
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        message: "Seller not found",
-      });
-    }
+    console.log("Request ID:", requestId);
+    console.log("Method:", req.method);
+    console.log("URL:", req.originalUrl);
+    console.log("Content-Type:", req.headers["content-type"]);
+    console.log(
+      "Authorization exists:",
+      Boolean(req.headers.authorization)
+    );
 
-    if (seller.role !== "seller") {
-      return res.status(403).json({
-        success: false,
-        message: "Only sellers can create products",
-      });
-    }
+    console.log(
+      "Authorization prefix:",
+      req.headers.authorization
+        ? req.headers.authorization.slice(0, 25) + "..."
+        : null
+    );
 
-    if (seller.isBlocked || seller.isDeleted) {
-      return res.status(403).json({
-        success: false,
-        message: "Seller account is not active",
-      });
-    }
+
+    /* =====================================================
+       2. AUTH USER
+    ===================================================== */
+
+    console.log("\n========== 2. AUTH USER ==========");
+
+    console.log(
+      "req.user:",
+      req.user
+    );
+
+    console.log(
+      "req.user.id:",
+      req.user?.id
+    );
+
+    console.log(
+      "req.user._id:",
+      req.user?._id
+    );
+
+    console.log(
+      "req.user.role:",
+      req.user?.role
+    );
+
+
+    const sellerId =
+      req.user?._id ||
+      req.user?.id;
+
+
+    console.log(
+      "Resolved sellerId:",
+      sellerId
+    );
+
+
+    /* =====================================================
+       3. SELLER ID VALIDATION
+    ===================================================== */
+
+    console.log(
+      "\n========== 3. SELLER ID VALIDATION =========="
+    );
+
 
     if (
-      seller.sellerStatus !== "approved" ||
-      seller.sellerInfo?.verification?.status !== "approved"
+      !sellerId ||
+      !mongoose.Types.ObjectId.isValid(
+        sellerId
+      )
     ) {
+
+      console.error(
+        "❌ INVALID SELLER ID"
+      );
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Authentication required",
+        debug: {
+          requestId,
+          sellerId:
+            sellerId || null,
+        },
+      });
+
+    }
+
+
+    console.log(
+      "✅ Seller ID valid:",
+      sellerId
+    );
+
+
+    /* =====================================================
+       4. DATABASE SELLER LOOKUP
+    ===================================================== */
+
+    console.log(
+      "\n========== 4. DATABASE SELLER =========="
+    );
+
+
+    const seller =
+      await User.findById(
+        sellerId
+      ).select(
+        `
+        _id
+        firstName
+        lastName
+        email
+        role
+        sellerStatus
+        isBlocked
+        isDeleted
+        sellerInfo.verification.status
+        sellerInfo.store.shopName
+        `
+      );
+
+
+    console.log(
+      "Seller found:",
+      Boolean(seller)
+    );
+
+
+    if (!seller) {
+
+      console.error(
+        "❌ SELLER NOT FOUND"
+      );
+
+      return res.status(404).json({
+        success: false,
+        message:
+          "Seller not found",
+        debug: {
+          requestId,
+          sellerId,
+        },
+      });
+
+    }
+
+
+    console.log(
+      "Seller ID:",
+      seller._id
+    );
+
+    console.log(
+      "Seller email:",
+      seller.email
+    );
+
+    console.log(
+      "Seller role:",
+      seller.role
+    );
+
+    console.log(
+      "Seller status:",
+      seller.sellerStatus
+    );
+
+    console.log(
+      "KYC status:",
+      seller.sellerInfo
+        ?.verification
+        ?.status
+    );
+
+    console.log(
+      "Blocked:",
+      seller.isBlocked
+    );
+
+    console.log(
+      "Deleted:",
+      seller.isDeleted
+    );
+
+
+    /* =====================================================
+       5. SELLER AUTHORIZATION
+    ===================================================== */
+
+    console.log(
+      "\n========== 5. SELLER AUTHORIZATION =========="
+    );
+
+
+    const roleApproved =
+      seller.role === "seller";
+
+    const sellerApproved =
+      seller.sellerStatus ===
+      "approved";
+
+    const kycApproved =
+      seller.sellerInfo
+        ?.verification
+        ?.status ===
+      "approved";
+
+
+    console.log(
+      "Role approved:",
+      roleApproved
+    );
+
+    console.log(
+      "Seller approved:",
+      sellerApproved
+    );
+
+    console.log(
+      "KYC approved:",
+      kycApproved
+    );
+
+
+    if (!roleApproved) {
+
+      console.error(
+        "❌ ROLE CHECK FAILED"
+      );
+
       return res.status(403).json({
         success: false,
         message:
-          "Seller verification is not approved. Complete document verification before creating products.",
-        sellerStatus: seller.sellerStatus,
-        verificationStatus:
-          seller.sellerInfo?.verification?.status || "pending",
+          "Only sellers can create products",
+        debug: {
+          requestId,
+          role:
+            seller.role || null,
+        },
       });
+
     }
 
-    /* =====================================
-       PRODUCT DATA
-    ===================================== */
+
+    if (
+      seller.isBlocked ||
+      seller.isDeleted
+    ) {
+
+      console.error(
+        "❌ ACCOUNT STATUS CHECK FAILED"
+      );
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "Seller account is not active",
+        debug: {
+          requestId,
+          isBlocked:
+            seller.isBlocked,
+          isDeleted:
+            seller.isDeleted,
+        },
+      });
+
+    }
+
+
+    if (!sellerApproved) {
+
+      console.error(
+        "❌ SELLER APPROVAL FAILED"
+      );
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "Seller account is not approved",
+        debug: {
+          requestId,
+          sellerStatus:
+            seller.sellerStatus,
+        },
+      });
+
+    }
+
+
+    if (!kycApproved) {
+
+      console.error(
+        "❌ KYC APPROVAL FAILED"
+      );
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "Seller KYC verification is not approved",
+        debug: {
+          requestId,
+          verificationStatus:
+            seller.sellerInfo
+              ?.verification
+              ?.status ||
+            "pending",
+        },
+      });
+
+    }
+
+
+    console.log(
+      "✅ SELLER AUTHORIZATION PASSED"
+    );
+
+
+    /* =====================================================
+       6. REQUEST BODY
+    ===================================================== */
+
+    console.log(
+      "\n========== 6. REQUEST BODY =========="
+    );
+
+
+    console.log(
+      "Body keys:",
+      Object.keys(
+        req.body || {}
+      )
+    );
+
+
+    console.log(
+      "Full body:",
+      req.body
+    );
+
+
+    /* =====================================================
+       7. REQUEST FILES
+    ===================================================== */
+
+    console.log(
+      "\n========== 7. REQUEST FILES =========="
+    );
+
+
+    console.log(
+      "req.files exists:",
+      Boolean(req.files)
+    );
+
+
+    console.log(
+      "req.files:",
+      req.files
+    );
+
+
+    /* =====================================================
+       8. EXTRACT PRODUCT DATA
+    ===================================================== */
+
+    console.log(
+      "\n========== 8. PRODUCT DATA =========="
+    );
+
 
     const {
       title,
@@ -312,236 +655,1064 @@ export const createProduct = async (req, res) => {
       offer: rawOffer,
     } = req.body;
 
-    const tags = parseJsonField(rawTags, []);
-    const variants = parseJsonField(rawVariants, []);
-    const shipping = parseJsonField(rawShipping, {});
-    const seo = parseJsonField(rawSeo, {});
-    const offer = parseJsonField(rawOffer, {});
 
-    /* =====================================
-       UPLOADED MEDIA
-    ===================================== */
+    console.log(
+      "Title:",
+      title
+    );
 
-    const imageFiles = Array.isArray(req.files?.images)
-      ? req.files.images
-      : req.files?.images
+    console.log(
+      "Description length:",
+      description?.length
+    );
+
+    console.log(
+      "Category:",
+      category
+    );
+
+    console.log(
+      "SubCategory:",
+      subCategory
+    );
+
+    console.log(
+      "Brand:",
+      brand
+    );
+
+    console.log(
+      "Product type:",
+      productType
+    );
+
+    console.log(
+      "Currency:",
+      currency
+    );
+
+
+    /* =====================================================
+       9. PARSE JSON FIELDS
+    ===================================================== */
+
+    console.log(
+      "\n========== 9. PARSE JSON =========="
+    );
+
+
+    let tags;
+    let variants;
+    let shipping;
+    let seo;
+    let offer;
+
+
+    try {
+
+      tags =
+        parseJsonField(
+          rawTags,
+          []
+        );
+
+      variants =
+        parseJsonField(
+          rawVariants,
+          []
+        );
+
+      shipping =
+        parseJsonField(
+          rawShipping,
+          {}
+        );
+
+      seo =
+        parseJsonField(
+          rawSeo,
+          {}
+        );
+
+      offer =
+        parseJsonField(
+          rawOffer,
+          {}
+        );
+
+
+      console.log(
+        "Tags:",
+        tags
+      );
+
+      console.log(
+        "Variants:",
+        variants
+      );
+
+      console.log(
+        "Shipping:",
+        shipping
+      );
+
+      console.log(
+        "SEO:",
+        seo
+      );
+
+      console.log(
+        "Offer:",
+        offer
+      );
+
+
+    } catch (parseError) {
+
+      console.error(
+        "❌ JSON PARSE ERROR"
+      );
+
+      console.error(
+        parseError
+      );
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid JSON product data",
+        debug: {
+          requestId,
+          error:
+            parseError?.message,
+        },
+      });
+
+    }
+
+
+    /* =====================================================
+       10. MEDIA FILES
+    ===================================================== */
+
+    console.log(
+      "\n========== 10. MEDIA =========="
+    );
+
+
+    const imageFiles =
+      Array.isArray(
+        req.files?.images
+      )
+        ? req.files.images
+        : req.files?.images
         ? [req.files.images]
         : [];
 
-    const videoFiles = Array.isArray(req.files?.videos)
-      ? req.files.videos
-      : req.files?.videos
+
+    const videoFiles =
+      Array.isArray(
+        req.files?.videos
+      )
+        ? req.files.videos
+        : req.files?.videos
         ? [req.files.videos]
         : [];
 
-    const getFileUrl = (file) =>
-      file?.path ||
-      file?.secure_url ||
-      file?.location ||
-      file?.url ||
-      "";
+
+    console.log(
+      "Image count:",
+      imageFiles.length
+    );
+
+    console.log(
+      "Video count:",
+      videoFiles.length
+    );
+
+
+    imageFiles.forEach(
+      (file, index) => {
+
+        console.log(
+          `Image ${index + 1}:`,
+          {
+            fieldname:
+              file?.fieldname,
+            originalname:
+              file?.originalname,
+            mimetype:
+              file?.mimetype,
+            size:
+              file?.size,
+            path:
+              file?.path,
+            secure_url:
+              file?.secure_url,
+            location:
+              file?.location,
+          }
+        );
+
+      }
+    );
+
+
+    videoFiles.forEach(
+      (file, index) => {
+
+        console.log(
+          `Video ${index + 1}:`,
+          {
+            fieldname:
+              file?.fieldname,
+            originalname:
+              file?.originalname,
+            mimetype:
+              file?.mimetype,
+            size:
+              file?.size,
+            path:
+              file?.path,
+            secure_url:
+              file?.secure_url,
+            location:
+              file?.location,
+          }
+        );
+
+      }
+    );
+
+
+    const getFileUrl =
+      (file) =>
+        file?.path ||
+        file?.secure_url ||
+        file?.location ||
+        file?.url ||
+        "";
+
 
     const media = {
-      images: imageFiles.map(getFileUrl).filter(Boolean),
-      videos: videoFiles.map(getFileUrl).filter(Boolean),
+
+      images:
+        imageFiles
+          .map(getFileUrl)
+          .filter(Boolean),
+
+      videos:
+        videoFiles
+          .map(getFileUrl)
+          .filter(Boolean),
+
     };
-    /* =====================================
-       VALIDATION
-    ===================================== */
+
+
+    console.log(
+      "Final media:",
+      media
+    );
+
+
+    /* =====================================================
+       11. BASIC VALIDATION
+    ===================================================== */
+
+    console.log(
+      "\n========== 11. BASIC VALIDATION =========="
+    );
+
 
     if (
       typeof title !== "string" ||
       title.trim().length < 3 ||
       title.trim().length > 200
     ) {
+
+      console.error(
+        "❌ TITLE VALIDATION FAILED"
+      );
+
       return res.status(400).json({
         success: false,
         message:
           "Product title must be between 3 and 200 characters",
+        debug: {
+          requestId,
+          title,
+        },
       });
+
     }
+
 
     if (
       typeof description !== "string" ||
       description.trim().length < 10 ||
       description.trim().length > MAX_TEXT
     ) {
+
+      console.error(
+        "❌ DESCRIPTION VALIDATION FAILED"
+      );
+
       return res.status(400).json({
         success: false,
         message:
           "Product description must be between 10 and 20000 characters",
+        debug: {
+          requestId,
+          descriptionLength:
+            description?.length || 0,
+        },
       });
+
     }
+
 
     if (!category) {
+
+      console.error(
+        "❌ CATEGORY MISSING"
+      );
+
       return res.status(400).json({
         success: false,
-        message: "Category is required",
+        message:
+          "Category is required",
+        debug: {
+          requestId,
+        },
       });
+
     }
 
+
     if (
-      !mongoose.Types.ObjectId.isValid(category)
+      !mongoose.Types.ObjectId.isValid(
+        category
+      )
     ) {
+
+      console.error(
+        "❌ CATEGORY ID INVALID"
+      );
+
       return res.status(400).json({
         success: false,
-        message: "Invalid category",
+        message:
+          "Invalid category",
+        debug: {
+          requestId,
+          category,
+        },
       });
+
     }
 
-    /* =====================================
-       VARIANT VALIDATION
-    ===================================== */
+
+    /* =====================================================
+       12. VARIANT VALIDATION
+    ===================================================== */
+
+    console.log(
+      "\n========== 12. VARIANT VALIDATION =========="
+    );
+
+
+    console.log(
+      "Variant count:",
+      Array.isArray(variants)
+        ? variants.length
+        : "NOT ARRAY"
+    );
+
 
     if (
-      !variants ||
       !Array.isArray(variants) ||
       variants.length === 0
     ) {
+
+      console.error(
+        "❌ VARIANTS INVALID"
+      );
+
       return res.status(400).json({
         success: false,
-        message: "At least one product variant is required",
+        message:
+          "At least one product variant is required",
+        debug: {
+          requestId,
+          variants,
+        },
       });
+
     }
 
-    /* =====================================
-       CHECK SKU DUPLICATE
-    ===================================== */
 
     const variantValidation =
-      validateVariants(variants);
+      validateVariants(
+        variants
+      );
 
-    if (!variantValidation.valid) {
+
+    console.log(
+      "Variant validation:",
+      variantValidation
+    );
+
+
+    if (
+      !variantValidation.valid
+    ) {
+
+      console.error(
+        "❌ VARIANT VALIDATION FAILED"
+      );
+
       return res.status(400).json({
         success: false,
-        message: variantValidation.message,
+        message:
+          variantValidation.message,
+        debug: {
+          requestId,
+          variants,
+        },
       });
+
     }
+
 
     const normalizedVariants =
       variantValidation.variants;
 
+
+    console.log(
+      "✅ Normalized variants:",
+      normalizedVariants
+    );
+
+
+    /* =====================================================
+       13. SKU DUPLICATE CHECK
+    ===================================================== */
+
+    console.log(
+      "\n========== 13. SKU CHECK =========="
+    );
+
+
     const skus =
       normalizedVariants.map(
-        (variant) => variant.sku
+        (variant) =>
+          variant.sku
       );
 
-    const existingProduct = await Product.findOne({
-      "variants.sku": {
-        $in: skus,
-      },
-    });
 
-    if (existingProduct) {
-      return res.status(400).json({
-        success: false,
-        message: "One or more SKU already exist",
-      });
+    console.log(
+      "SKUs:",
+      skus
+    );
+
+
+    try {
+
+      const existingProduct =
+        await Product.findOne({
+          "variants.sku": {
+            $in: skus,
+          },
+        });
+
+
+      console.log(
+        "Existing product:",
+        existingProduct?._id ||
+        null
+      );
+
+
+      if (
+        existingProduct
+      ) {
+
+        console.error(
+          "❌ DUPLICATE SKU"
+        );
+
+        return res.status(409).json({
+
+          success: false,
+
+          message:
+            "One or more SKU already exist",
+
+          debug: {
+            requestId,
+            skus,
+            existingProductId:
+              existingProduct._id,
+          },
+
+        });
+
+      }
+
+    } catch (skuError) {
+
+      console.error(
+        "❌ SKU DATABASE CHECK ERROR"
+      );
+
+      console.error(
+        skuError
+      );
+
+      throw skuError;
+
     }
 
-    /* =====================================
-       CREATE PRODUCT
-    ===================================== */
-const product = await Product.create({
-  title,
-  description,
-  shortDescription,
 
-  category,
-  subCategory: subCategory || null,
+    /* =====================================================
+       14. PRODUCT OBJECT
+    ===================================================== */
 
-  tags: Array.isArray(tags)
-    ? tags
-    : [],
+    console.log(
+      "\n========== 14. BUILD PRODUCT =========="
+    );
 
-  brand: brand || "",
 
-  productType:
-    productType || "simple",
+    const productData = {
 
-  variants: normalizedVariants,
+      title:
+        title.trim(),
 
-  media,
+      description:
+        description.trim(),
 
-  currency:
-    currency || "INR",
+      shortDescription:
+        shortDescription || "",
 
-  minimumOrderQuantity:
-    minimumOrderQuantity || 1,
 
-  maximumOrderQuantity:
-    maximumOrderQuantity || 10,
+      category,
 
-  shipping,
+      subCategory:
+        subCategory || null,
 
-  material,
 
-  warrantyInformation,
+      tags:
+        Array.isArray(tags)
+          ? tags
+          : [],
 
-  returnPolicy,
 
-  shippingInformation,
+      brand:
+        brand || "",
 
-  seller: sellerId,
 
-  seo,
+      productType:
+        productType || "simple",
 
-  offer,
 
-  status: "pending",
+      variants:
+        normalizedVariants,
 
-  approvalHistory: [
-    {
-      action: "submitted",
-      reason: "Product submitted for approval",
-      performedBy: sellerId,
-    },
-  ],
-});
 
-    /* =====================================
-       RESPONSE
-    ===================================== */
+      media,
+
+
+      currency:
+        currency || "INR",
+
+
+      minimumOrderQuantity:
+        Number(
+          minimumOrderQuantity || 1
+        ),
+
+
+      maximumOrderQuantity:
+        Number(
+          maximumOrderQuantity || 10
+        ),
+
+
+      shipping,
+
+      material,
+
+      warrantyInformation,
+
+      returnPolicy,
+
+      shippingInformation,
+
+
+      seller:
+        sellerId,
+
+
+      seo,
+
+      offer,
+
+
+      status:
+        "pending",
+
+
+      approvalHistory: [
+
+        {
+          action:
+            "submitted",
+
+          reason:
+            "Product submitted for approval",
+
+          performedBy:
+            sellerId,
+        },
+
+      ],
+
+    };
+
+
+    console.log(
+      "Product data before MongoDB:",
+      JSON.stringify(
+        productData,
+        null,
+        2
+      )
+    );
+
+
+    /* =====================================================
+       15. MONGOOSE CREATE
+    ===================================================== */
+
+    console.log(
+      "\n========== 15. MONGOOSE CREATE =========="
+    );
+
+
+    let product;
+
+
+    try {
+
+      product =
+        await Product.create(
+          productData
+        );
+
+
+      console.log(
+        "✅ PRODUCT CREATED"
+      );
+
+      console.log(
+        "Product ID:",
+        product?._id
+      );
+
+
+    } catch (
+      mongooseError
+    ) {
+
+      console.error(
+        "❌ MONGOOSE CREATE FAILED"
+      );
+
+      console.error(
+        "Name:",
+        mongooseError?.name
+      );
+
+      console.error(
+        "Message:",
+        mongooseError?.message
+      );
+
+      console.error(
+        "Code:",
+        mongooseError?.code
+      );
+
+      console.error(
+        "Errors:",
+        mongooseError?.errors
+      );
+
+      console.error(
+        "Key pattern:",
+        mongooseError?.keyPattern
+      );
+
+      console.error(
+        "Key value:",
+        mongooseError?.keyValue
+      );
+
+      console.error(
+        "Stack:",
+        mongooseError?.stack
+      );
+
+
+      if (
+        mongooseError?.name ===
+        "ValidationError"
+      ) {
+
+        const validationErrors =
+          Object.fromEntries(
+            Object.entries(
+              mongooseError.errors || {}
+            ).map(
+              ([field, value]) => [
+                field,
+                value?.message ||
+                  String(value),
+              ]
+            )
+          );
+
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "Product validation failed",
+
+          debug: {
+            requestId,
+            validationErrors,
+          },
+
+        });
+
+      }
+
+
+      if (
+        mongooseError?.code ===
+        11000
+      ) {
+
+        return res.status(409).json({
+
+          success: false,
+
+          message:
+            "Duplicate product data",
+
+          debug: {
+            requestId,
+            keyPattern:
+              mongooseError.keyPattern ||
+              null,
+            keyValue:
+              mongooseError.keyValue ||
+              null,
+          },
+
+        });
+
+      }
+
+
+      throw mongooseError;
+
+    }
+
+
+    /* =====================================================
+       16. SUCCESS
+    ===================================================== */
+
+    const duration =
+      Date.now() -
+      startedAt;
+
+
+    console.log(
+      "\n=================================================="
+    );
+
+    console.log(
+      `✅ ${requestId} CREATE PRODUCT SUCCESS`
+    );
+
+    console.log(
+      "Product ID:",
+      product._id
+    );
+
+    console.log(
+      "Seller ID:",
+      sellerId
+    );
+
+    console.log(
+      "Status:",
+      product.status
+    );
+
+    console.log(
+      "Duration:",
+      `${duration}ms`
+    );
+
+    console.log(
+      "=================================================="
+    );
+
 
     return res.status(201).json({
-      success: true,
+
+      success:
+        true,
+
       message:
         "Product created and submitted for approval",
+
       product,
+
+      debug: {
+        requestId,
+        duration,
+      },
+
     });
+
 
   } catch (error) {
-  console.error("=================================");
-  console.error("CREATE PRODUCT ERROR");
-  console.error(error);
-  console.error("=================================");
 
-  if (error?.code === 11000) {
-    return res.status(409).json({
-      success: false,
-      message: "Duplicate value already exists",
-      keyPattern: error.keyPattern || null,
-      keyValue: error.keyValue || null,
+    /* =====================================================
+       17. FINAL GLOBAL CREATE ERROR
+    ===================================================== */
+
+    const duration =
+      Date.now() -
+      startedAt;
+
+
+    console.error(
+      "\n=================================================="
+    );
+
+    console.error(
+      `🔥 ${requestId} CREATE PRODUCT FAILED`
+    );
+
+    console.error(
+      "Duration:",
+      `${duration}ms`
+    );
+
+    console.error(
+      "Error name:",
+      error?.name
+    );
+
+    console.error(
+      "Error message:",
+      error?.message
+    );
+
+    console.error(
+      "Error code:",
+      error?.code
+    );
+
+    console.error(
+      "Error keyPattern:",
+      error?.keyPattern
+    );
+
+    console.error(
+      "Error keyValue:",
+      error?.keyValue
+    );
+
+    console.error(
+      "Error errors:",
+      error?.errors
+    );
+
+    console.error(
+      "Error stack:",
+      error?.stack
+    );
+
+    console.error(
+      "Full error:",
+      error
+    );
+
+    console.error(
+      "=================================================="
+    );
+
+
+    /* =====================================================
+       DUPLICATE
+    ===================================================== */
+
+    if (
+      error?.code === 11000
+    ) {
+
+      return res.status(409).json({
+
+        success:
+          false,
+
+        message:
+          "Duplicate value already exists",
+
+        debug: {
+          requestId,
+
+          keyPattern:
+            error.keyPattern ||
+            null,
+
+          keyValue:
+            error.keyValue ||
+            null,
+
+        },
+
+      });
+
+    }
+
+
+    /* =====================================================
+       MONGOOSE VALIDATION
+    ===================================================== */
+
+    if (
+      error?.name ===
+      "ValidationError"
+    ) {
+
+      return res.status(400).json({
+
+        success:
+          false,
+
+        message:
+          "Product validation failed",
+
+        debug: {
+
+          requestId,
+
+          errors:
+            Object.fromEntries(
+              Object.entries(
+                error.errors || {}
+              ).map(
+                ([field, value]) => [
+                  field,
+                  value?.message ||
+                    String(value),
+                ]
+              )
+            ),
+
+        },
+
+      });
+
+    }
+
+
+    /* =====================================================
+       CAST ERROR
+    ===================================================== */
+
+    if (
+      error?.name ===
+      "CastError"
+    ) {
+
+      return res.status(400).json({
+
+        success:
+          false,
+
+        message:
+          `Invalid ${error.path}`,
+
+        debug: {
+
+          requestId,
+
+          path:
+            error.path,
+
+          value:
+            error.value,
+
+        },
+
+      });
+
+    }
+
+
+    /* =====================================================
+       FINAL 500
+    ===================================================== */
+
+    return res.status(500).json({
+
+      success:
+        false,
+
+      message:
+        typeof error?.message ===
+        "string"
+
+          ? error.message
+
+          : "Failed to create product",
+
+      debug: {
+
+        requestId,
+
+        errorName:
+          error?.name ||
+          null,
+
+        errorCode:
+          error?.code ||
+          null,
+
+        stack:
+          process.env.NODE_ENV ===
+          "development"
+
+            ? error?.stack
+
+            : undefined,
+
+      },
+
     });
+
   }
 
-  if (error?.name === "ValidationError") {
-    return res.status(400).json({
-      success: false,
-      message: Object.values(error.errors)
-        .map((err) => err.message)
-        .join(", "),
-    });
-  }
-
-  return res.status(500).json({
-    success: false,
-    message:
-      typeof error?.message === "string"
-        ? error.message
-        : "Failed to create product",
-  });
-}
 };
 
 /* =====================================
@@ -855,6 +2026,22 @@ if (req.query.category) {
 //       .limit(limit)
 
 //       .lean();
+console.log(
+  "======================================"
+);
+
+console.log(
+  "🛍️ CUSTOMER PRODUCTS QUERY"
+);
+
+console.log(
+  "Query:",
+  query
+);
+
+console.log(
+  "======================================"
+);
 const products = await Product.find(query)
   .populate("category", "name slug image")
   .populate("subCategory", "name slug")
@@ -863,6 +2050,36 @@ const products = await Product.find(query)
   .skip(skip)
   .limit(limit)
   .lean();
+  console.log(
+  "✅ CUSTOMER PRODUCTS FOUND:",
+  products.length
+);
+
+products.forEach(
+  (product) => {
+
+    console.log(
+      "Customer product:",
+      {
+        id:
+          product._id,
+
+        title:
+          product.title,
+
+        status:
+          product.status,
+
+        isActive:
+          product.isActive,
+
+        isDeleted:
+          product.isDeleted,
+      }
+    );
+
+  }
+);
     /* =====================================
        TOTAL
     ===================================== */
@@ -2272,47 +3489,92 @@ export const getPendingProducts = async (req, res) => {
 /* =====================================
    APPROVE PRODUCT
 ===================================== */
-
 export const approveProduct = async (req, res) => {
-    if (!requireAdmin(req, res)) {
-      return;
-    }
 
+  if (!requireAdmin(req, res)) {
+    return;
+  }
 
   try {
-    const adminId = req.user.id;
-    const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const adminId =
+      req.user.id;
+
+    const { id } =
+      req.params;
+
+
+    /* =====================================
+       VALIDATE PRODUCT ID
+    ===================================== */
+
+    if (
+      !mongoose.Types.ObjectId.isValid(id)
+    ) {
+
       return res.status(400).json({
         success: false,
         message: "Invalid product ID",
       });
+
     }
 
-    const product = await Product.findOne({
-      _id: id,
-      isDeleted: false,
-    });
+
+    /* =====================================
+       FIND PRODUCT
+    ===================================== */
+
+    const product =
+      await Product.findOne({
+        _id: id,
+        isDeleted: false,
+      });
+
 
     if (!product) {
+
       return res.status(404).json({
         success: false,
         message: "Product not found",
       });
+
     }
 
-    if (product.status === "approved") {
+
+    /* =====================================
+       ALREADY APPROVED
+    ===================================== */
+
+    if (
+      product.status === "approved"
+    ) {
+
       return res.status(400).json({
         success: false,
         message: "Product is already approved",
       });
+
     }
 
+
+    /* =====================================
+       VERIFY SELLER
+    ===================================== */
+
     const productSeller =
-      await User.findById(product.seller).select(
-        "_id role sellerStatus isBlocked isDeleted sellerInfo.verification.status"
+      await User.findById(
+        product.seller
+      ).select(
+        `
+        _id
+        role
+        sellerStatus
+        isBlocked
+        isDeleted
+        sellerInfo.verification.status
+        `
       );
+
 
     if (
       !productSeller ||
@@ -2322,43 +3584,160 @@ export const approveProduct = async (req, res) => {
       productSeller.sellerStatus !== "approved" ||
       productSeller.sellerInfo?.verification?.status !== "approved"
     ) {
+
       return res.status(400).json({
+
         success: false,
+
         message:
-          "Product cannot be approved because the seller is not currently verified",
+          "Product cannot be approved because the seller is not currently verified.",
+
+        sellerStatus:
+          productSeller?.sellerStatus ||
+          null,
+
+        verificationStatus:
+          productSeller
+            ?.sellerInfo
+            ?.verification
+            ?.status ||
+          null,
+
       });
+
     }
 
-    product.status = "approved";
 
-    product.rejectionReason = "";
+    /* =====================================
+       APPROVE PRODUCT
+    ===================================== */
 
-    product.approvedAt = new Date();
+    product.status =
+      "approved";
 
-    product.approvedBy = adminId;
+
+    /*
+     * IMPORTANT:
+     * Make approved products visible
+     * to customers.
+     */
+
+    product.isActive =
+      true;
+
+
+    product.isDeleted =
+      false;
+
+
+    product.rejectionReason =
+      "";
+
+
+    product.approvedAt =
+      new Date();
+
+
+    product.approvedBy =
+      adminId;
+
+
+    /* =====================================
+       APPROVAL HISTORY
+    ===================================== */
 
     product.approvalHistory.push({
-      action: "approved",
-      reason: "Product approved by admin",
-      performedBy: adminId,
+
+      action:
+        "approved",
+
+      reason:
+        "Product approved by admin",
+
+      performedBy:
+        adminId,
+
     });
+
+
+    /* =====================================
+       SAVE
+    ===================================== */
 
     await product.save();
 
+
+    console.log(
+      "======================================"
+    );
+
+    console.log(
+      "✅ PRODUCT APPROVED"
+    );
+
+    console.log(
+      "Product ID:",
+      product._id
+    );
+
+    console.log(
+      "Status:",
+      product.status
+    );
+
+    console.log(
+      "isActive:",
+      product.isActive
+    );
+
+    console.log(
+      "isDeleted:",
+      product.isDeleted
+    );
+
+    console.log(
+      "======================================"
+    );
+
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
     return res.status(200).json({
-      success: true,
-      message: "Product approved successfully",
+
+      success:
+        true,
+
+      message:
+        "Product approved successfully",
+
       product,
+
     });
+
 
   } catch (error) {
-    console.error("Approve Product Error:", error);
+
+    console.error(
+      "❌ Approve Product Error:",
+      error
+    );
+
 
     return res.status(500).json({
-      success: false,
-      message: "An unexpected error occurred",
+
+      success:
+        false,
+
+      message:
+        error.message ||
+        "An unexpected error occurred",
+
     });
+
   }
+
 };
 /* =====================================
    REJECT PRODUCT

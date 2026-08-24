@@ -1,44 +1,31 @@
 import jwt from "jsonwebtoken";
-
 import dotenv from "dotenv";
 
 dotenv.config();
 
-/* =====================================
-   GENERATE JWT TOKEN
-===================================== */
-
-const generateToken = (
-
-  user
-
-) => {
+const generateToken = (user) => {
 
   return jwt.sign(
-
     {
+      id: user._id,
+      role: user.role,
+      email: user.email,
 
-      id:
-        user._id,
+      // Current application mode
+      activeMode:
+        user.activeMode || "customer",
 
-      role:
-        user.role,
-
-      email:
-        user.email,
-
+      // Seller authorization information
+      sellerStatus:
+        user.sellerStatus || "none",
     },
 
     process.env.JWT_SECRET,
 
     {
-
       expiresIn: "7d",
-
     }
-
   );
-
 };
 
 export default generateToken;

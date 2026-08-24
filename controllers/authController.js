@@ -181,76 +181,228 @@ const generateSecureOtp = () => {
   );
 };
 
-const safeUserResponse = (
-  user
-) => {
+/* =========================================================
+   SAFE USER RESPONSE
+========================================================= */
+
+const safeUserResponse = (user) => {
+
   if (!user) {
     return null;
   }
 
+
   const obj =
-    typeof user.toObject ===
-    "function"
+    typeof user.toObject === "function"
       ? user.toObject()
       : { ...user };
 
-  /*
-    NEVER return:
-    - password
-    - OTP
-    - OTP expiry
-    - reset OTP
-    - reset OTP expiry
-  */
+
+  /* -------------------------------------------------------
+     REMOVE SENSITIVE INFORMATION
+  ------------------------------------------------------- */
+
   delete obj.password;
   delete obj.otp;
   delete obj.otpExpiry;
   delete obj.resetPasswordOTP;
   delete obj.resetPasswordOTPExpiry;
 
-  /*
-    Admin-only permission information should not
-    accidentally be exposed during normal authentication.
-  */
+
+  /* -------------------------------------------------------
+     REMOVE ADMIN INTERNAL PERMISSIONS
+  ------------------------------------------------------- */
+
   if (obj.adminInfo) {
     delete obj.adminInfo.permissions;
   }
 
+
+  /* -------------------------------------------------------
+     SELLER AUTHORIZATION
+     
+     MongoDB source:
+     sellerInfo.verification.status
+
+     Frontend/API field:
+     sellerVerificationStatus
+  ------------------------------------------------------- */
+
+  obj.sellerStatus =
+    user.sellerStatus ?? null;
+
+
+  obj.sellerVerificationStatus =
+    user.sellerInfo?.verification?.status ||
+    null;
+
+
+  /* -------------------------------------------------------
+     ACCOUNT STATUS
+  ------------------------------------------------------- */
+
+  obj.isVerified =
+    Boolean(user.isVerified);
+
+  obj.isEmailVerified =
+    Boolean(user.isEmailVerified);
+
+  obj.isPhoneVerified =
+    Boolean(user.isPhoneVerified);
+
+  obj.isBlocked =
+    Boolean(user.isBlocked);
+
+  obj.isDeleted =
+    Boolean(user.isDeleted);
+
+
+  /* -------------------------------------------------------
+     ACTIVE APPLICATION MODE
+  ------------------------------------------------------- */
+
+  obj.activeMode =
+    user.activeMode || "customer";
+
+
   return obj;
 };
 
-const safeAuthResponse = (
-  user
-) => ({
-  id: user._id,
-  firstName:
-    user.firstName || "",
-  lastName:
-    user.lastName || "",
-  email:
-    user.email || "",
-  phone:
-    user.phone || "",
-  image:
-    user.image || "",
-  role:
-    user.role || "user",
-  sellerStatus:
-    user.sellerStatus ?? null,
-  sellerVerificationStatus:
-    user.sellerInfo?.verification
-      ?.status || null,
-  isVerified:
-    Boolean(user.isVerified),
-  isEmailVerified:
-    Boolean(user.isEmailVerified),
-  isPhoneVerified:
-    Boolean(user.isPhoneVerified),
-  isBlocked:
-    Boolean(user.isBlocked),
-  isDeleted:
-    Boolean(user.isDeleted),
-});
+
+/* =========================================================
+   SAFE AUTH RESPONSE
+========================================================= */
+
+const safeAuthResponse = (user) => {
+
+  if (!user) {
+    return null;
+  }
+
+
+  return {
+
+    id:
+      user._id,
+
+    firstName:
+      user.firstName || "",
+
+    lastName:
+      user.lastName || "",
+
+    email:
+      user.email || "",
+
+    phone:
+      user.phone || "",
+
+    image:
+      user.image || "",
+
+
+    /* -----------------------------------------------------
+       ROLE
+    ----------------------------------------------------- */
+
+    role:
+      user.role || "user",
+
+
+    /* -----------------------------------------------------
+       SELLER STATUS
+    ----------------------------------------------------- */
+
+    sellerStatus:
+      user.sellerStatus ?? null,
+
+
+    /* -----------------------------------------------------
+       SELLER KYC STATUS
+    ----------------------------------------------------- */
+
+    /* =====================================
+       SELLER KYC STATUS
+       
+       IMPORTANT:
+       Read directly from MongoDB
+       ================================== */
+
+    sellerVerificationStatus:
+      user.sellerInfo?.verification?.status ||
+      null,
+
+
+
+    /* -----------------------------------------------------
+       ACCOUNT VERIFICATION
+    ----------------------------------------------------- */
+
+    isVerified:
+      Boolean(user.isVerified),
+
+    isEmailVerified:
+      Boolean(user.isEmailVerified),
+
+    isPhoneVerified:
+      Boolean(user.isPhoneVerified),
+
+
+    /* -----------------------------------------------------
+       ACCOUNT STATUS
+    ----------------------------------------------------- */
+
+    isBlocked:
+      Boolean(user.isBlocked),
+
+    isDeleted:
+      Boolean(user.isDeleted),
+
+
+    /* -----------------------------------------------------
+       ACTIVE MODE
+    ----------------------------------------------------- */
+
+    activeMode:
+      user.activeMode || "customer",
+
+  };
+};
+
+// const safeAuthResponse = (
+//   user
+// ) => ({
+//   id: user._id,
+//   firstName:
+//     user.firstName || "",
+//   lastName:
+//     user.lastName || "",
+//   email:
+//     user.email || "",
+//   phone:
+//     user.phone || "",
+//   image:
+//     user.image || "",
+//   role:
+//     user.role || "user",
+//   sellerStatus:
+//     user.sellerStatus ?? null,
+//   sellerVerificationStatus:
+//     user.sellerInfo?.verification
+//       ?.status || null,
+//   isVerified:
+//     Boolean(user.isVerified),
+//   isEmailVerified:
+//     Boolean(user.isEmailVerified),
+//   isPhoneVerified:
+//     Boolean(user.isPhoneVerified),
+//   isBlocked:
+//     Boolean(user.isBlocked),
+//   activeMode:
+//     user.activeMode || "customer",
+//   isDeleted:
+//     Boolean(user.isDeleted),
+// });
 
 const unexpectedError = (
   res,
@@ -446,6 +598,17 @@ export const signup = async (
 
       which is a critical privilege-escalation vulnerability.
     */
+    const app = String(
+      req.body?.app || "customer"
+    ).trim().toLowerCase();
+
+    if (!["customer", "seller"].includes(app)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application",
+      });
+    }
+
     const requestedRole =
       normalizeString(
         req.body?.role,
@@ -512,8 +675,7 @@ export const signup = async (
       admin-only provisioning flow.
     */
     const userRole =
-      requestedRole ===
-      "seller"
+      app === "seller"
         ? "seller"
         : "user";
 
@@ -568,6 +730,7 @@ export const signup = async (
       isVerified: false,
       isEmailVerified: false,
       isPhoneVerified: false,
+      activeMode: app,
     };
 
     if (
@@ -795,80 +958,156 @@ export const verifySignupOTP =
    LOGIN WITH PASSWORD
 ========================================================= */
 
+/* =========================================================
+   LOGIN WITH PASSWORD
+========================================================= */
+
 export const signinWithPassword =
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
+
     try {
+
+      /* ---------------------------------------------------
+         READ INPUT
+      --------------------------------------------------- */
+
       const email =
         normalizeEmail(
           req.body?.email
         );
 
+
       const password =
         req.body?.password;
 
+
+      const app =
+        String(
+          req.body?.app ||
+          "customer"
+        )
+          .trim()
+          .toLowerCase();
+
+
+      /* ---------------------------------------------------
+         VALIDATION
+      --------------------------------------------------- */
+
       if (
         !isValidEmail(email) ||
-        typeof password !==
-          "string" ||
+        typeof password !== "string" ||
         !password
       ) {
+
         return res.status(400).json({
+
           success: false,
+
           message:
             "Email and password are required",
+
         });
+
       }
+
+
+      if (
+        !["customer", "seller"].includes(app)
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "Invalid application",
+
+        });
+
+      }
+
+
+      /* ---------------------------------------------------
+         FIND USER
+      --------------------------------------------------- */
 
       const user =
         await User.findOne({
           email,
         });
 
-      /*
-        Use a generic authentication error
-        instead of revealing whether an email exists.
-      */
+
       if (!user) {
+
         return res.status(401).json({
+
           success: false,
+
           message:
             "Invalid email or password",
+
         });
+
       }
+
+
+      /* ---------------------------------------------------
+         ACCOUNT STATUS
+      --------------------------------------------------- */
 
       if (
         user.isDeleted ||
         user.isBlocked
       ) {
+
         return res.status(403).json({
+
           success: false,
+
           message:
             "This account is not available",
+
         });
+
       }
 
-      if (
-        !user.isVerified
-      ) {
+
+      /* ---------------------------------------------------
+         ACCOUNT VERIFICATION
+      --------------------------------------------------- */
+
+      if (!user.isVerified) {
+
         return res.status(403).json({
+
           success: false,
+
           message:
             "Account not verified",
+
         });
+
       }
 
-      if (
-        !user.password
-      ) {
+
+      /* ---------------------------------------------------
+         PASSWORD CHECK
+      --------------------------------------------------- */
+
+      if (!user.password) {
+
         return res.status(401).json({
+
           success: false,
+
           message:
             "Invalid email or password",
+
         });
+
       }
+
 
       const isMatch =
         await bcrypt.compare(
@@ -876,68 +1115,425 @@ export const signinWithPassword =
           user.password
         );
 
+
       if (!isMatch) {
+
         return res.status(401).json({
+
           success: false,
+
           message:
             "Invalid email or password",
+
         });
+
       }
+
+
+      /* ===================================================
+         SELLER APPLICATION
+      =================================================== */
+
+      if (app === "seller") {
+
+        const kycStatus =
+          user.sellerInfo
+            ?.verification
+            ?.status ||
+          null;
+
+
+        console.log(
+          "======================================"
+        );
+
+        console.log(
+          "🏪 SELLER PASSWORD LOGIN"
+        );
+
+        console.log(
+          "Email:",
+          user.email
+        );
+
+        console.log(
+          "Role:",
+          user.role
+        );
+
+        console.log(
+          "Seller Status:",
+          user.sellerStatus
+        );
+
+        console.log(
+          "KYC Status:",
+          kycStatus
+        );
+
+        console.log(
+          "======================================"
+        );
+
+
+        /* -------------------------------------------------
+           ROLE CHECK
+        ------------------------------------------------- */
+
+        if (
+          user.role !== "seller"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "This login is only available for seller accounts.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        /* -------------------------------------------------
+           SELLER APPROVAL
+        ------------------------------------------------- */
+
+        if (
+          user.sellerStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        /* -------------------------------------------------
+           KYC APPROVAL
+        ------------------------------------------------- */
+
+        if (
+          kycStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is approved, but KYC verification is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        /* -------------------------------------------------
+           SELLER MODE
+        ------------------------------------------------- */
+
+        user.activeMode =
+          "seller";
+
+
+        console.log(
+          "✅ Seller account approved"
+        );
+
+        console.log(
+          "✅ KYC approved"
+        );
+
+        console.log(
+          "✅ Active mode: seller"
+        );
+
+
+      } else {
+
+        /* =================================================
+           CUSTOMER APP
+        ================================================= */
+
+        user.activeMode =
+          "customer";
+
+
+        console.log(
+          "🛍️ Customer login"
+        );
+
+      }
+
+
+      /* ---------------------------------------------------
+         LAST LOGIN
+      --------------------------------------------------- */
 
       user.lastLogin =
         new Date();
 
+
+      /* ---------------------------------------------------
+         SAVE
+      --------------------------------------------------- */
+
       await user.save();
+
+
+      /* ---------------------------------------------------
+         CREATE TOKEN
+      --------------------------------------------------- */
 
       const token =
         generateToken(
           user
         );
 
+
+      /* ---------------------------------------------------
+         RESPONSE USER
+      --------------------------------------------------- */
+
+      const responseUser =
+        safeAuthResponse(
+          user
+        );
+
+
+      /* ---------------------------------------------------
+         DEBUG RESPONSE
+      --------------------------------------------------- */
+
+      console.log(
+        "========== PASSWORD LOGIN RESPONSE =========="
+      );
+
+      console.log(
+        "Role:",
+        responseUser.role
+      );
+
+      console.log(
+        "Seller Status:",
+        responseUser.sellerStatus
+      );
+
+      console.log(
+        "KYC Status:",
+        responseUser.sellerVerificationStatus
+      );
+
+      console.log(
+        "Active Mode:",
+        responseUser.activeMode
+      );
+
+      console.log(
+        "=============================================="
+      );
+
+
+      /* ---------------------------------------------------
+         FINAL RESPONSE
+      --------------------------------------------------- */
+
       return res.status(200).json({
+
         success: true,
+
         message:
           "Login successful",
+
         token,
+
         user:
-          safeAuthResponse(
-            user
-          ),
+          responseUser,
+
       });
 
+
     } catch (error) {
+
       return unexpectedError(
         res,
         error,
         "Password Login Error"
       );
-    }
-  };
 
+    }
+
+  };
+// CHECK EMAIL / FIND EXISTING ACCOUNT
+// =========================================================
+
+export const checkExistingAccount = async (req, res) => {
+  try {
+    const email = String(req.query.email || "")
+      .trim()
+      .toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is required",
+      });
+    }
+
+    const user = await User.findOne({
+      email,
+      isDeleted: { $ne: true },
+    }).select(
+      "_id firstName lastName email phone image role sellerStatus sellerAppliedAt sellerApprovedAt"
+    );
+
+    // -----------------------------------------------------
+    // ACCOUNT DOES NOT EXIST
+    // -----------------------------------------------------
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message: "No account found. You can register.",
+      });
+    }
+
+    // -----------------------------------------------------
+    // ACCOUNT EXISTS
+    // -----------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      exists: true,
+
+      message: "Account found",
+
+      user: {
+        _id: user._id,
+
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+
+        email: user.email || "",
+        phone: user.phone || "",
+        image: user.image || "",
+
+        role: user.role || "user",
+
+        sellerStatus:
+          user.sellerStatus || null,
+
+        sellerAppliedAt:
+          user.sellerAppliedAt || null,
+
+        sellerApprovedAt:
+          user.sellerApprovedAt || null,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Check Existing Account Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to check account",
+    });
+  }
+};
 /* =========================================================
    SEND LOGIN OTP
 ========================================================= */
 
 export const sendLoginOTP =
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
+
     try {
+
       const email =
         normalizeEmail(
           req.body?.email
         );
 
+
+      const app =
+        String(
+          req.body?.app ||
+          "customer"
+        )
+          .trim()
+          .toLowerCase();
+
+
+      /* ---------------------------------------------------
+         VALIDATION
+      --------------------------------------------------- */
+
       if (
         !isValidEmail(email)
       ) {
+
         return res.status(400).json({
+
           success: false,
+
           message:
             "A valid email is required",
+
         });
+
       }
+
+
+      if (
+        !["customer", "seller"].includes(app)
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "Invalid application",
+
+        });
+
+      }
+
+
+      /* ---------------------------------------------------
+         OTP RATE LIMIT
+      --------------------------------------------------- */
 
       if (
         !canAttemptOtp(
@@ -945,113 +1541,325 @@ export const sendLoginOTP =
           email
         )
       ) {
+
         return res.status(429).json({
+
           success: false,
+
           message:
             "Too many OTP requests. Please try again later.",
+
         });
+
       }
+
+
+      /* ---------------------------------------------------
+         FIND USER
+      --------------------------------------------------- */
 
       const user =
         await User.findOne({
           email,
         });
 
-      /*
-        Generic response prevents account enumeration.
-      */
+
       if (
         !user ||
         user.isDeleted ||
         user.isBlocked ||
         !user.isVerified
       ) {
+
         return res.status(200).json({
+
           success: true,
+
           message:
             "If the account is eligible, a login OTP has been sent.",
+
         });
+
       }
+
+
+      /* ===================================================
+         SELLER APP CHECK
+      =================================================== */
+
+      if (app === "seller") {
+
+        const kycStatus =
+          user.sellerInfo
+            ?.verification
+            ?.status ||
+          null;
+
+
+        console.log(
+          "======================================"
+        );
+
+        console.log(
+          "📩 SELLER OTP REQUEST"
+        );
+
+        console.log(
+          "Role:",
+          user.role
+        );
+
+        console.log(
+          "Seller Status:",
+          user.sellerStatus
+        );
+
+        console.log(
+          "KYC Status:",
+          kycStatus
+        );
+
+        console.log(
+          "======================================"
+        );
+
+
+        if (
+          user.role !== "seller"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "This login is only available for seller accounts.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        if (
+          user.sellerStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        if (
+          kycStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is approved, but KYC verification is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+      }
+
+
+      /* ---------------------------------------------------
+         GENERATE OTP
+      --------------------------------------------------- */
 
       const otp =
         generateSecureOtp();
 
+
       if (
-        !isValidOtpFormat(otp)
+        !isValidOtpFormat(
+          otp
+        )
       ) {
+
         return res.status(500).json({
+
           success: false,
+
           message:
             "Unable to generate OTP",
+
         });
+
       }
+
 
       user.otp =
         otp;
 
+
       user.otpExpiry =
         new Date(
           Date.now() +
-            OTP_EXPIRY_MS
+          OTP_EXPIRY_MS
         );
 
+
       await user.save();
+
 
       await sendEmailOTP(
         email,
         otp
       );
 
+
       clearOtpAttempts(
         "login",
         email
       );
 
+
       return res.status(200).json({
+
         success: true,
+
         message:
           "Login OTP sent successfully",
+
       });
 
+
     } catch (error) {
+
       return unexpectedError(
         res,
         error,
         "Send Login OTP Error"
       );
-    }
-  };
 
+    }
+
+  };
 /* =========================================================
    VERIFY LOGIN OTP
 ========================================================= */
 
 export const verifySigninOTP =
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
+
     try {
+
       const email =
         normalizeEmail(
           req.body?.email
         );
+
 
       const otp =
         normalizeOtp(
           req.body?.otp
         );
 
+
+      const app =
+        String(
+          req.body?.app ||
+          "customer"
+        )
+          .trim()
+          .toLowerCase();
+
+
+      console.log(
+        "======================================"
+      );
+
+      console.log(
+        "🔐 VERIFY LOGIN OTP"
+      );
+
+      console.log(
+        "Email:",
+        email
+      );
+
+      console.log(
+        "App:",
+        app
+      );
+
+      console.log(
+        "======================================"
+      );
+
+
+      /* ---------------------------------------------------
+         VALIDATION
+      --------------------------------------------------- */
+
       if (
         !isValidEmail(email) ||
         !isValidOtpFormat(otp)
       ) {
+
         return res.status(400).json({
+
           success: false,
+
           message:
             "Invalid email or OTP",
+
         });
+
       }
+
+
+      if (
+        !["customer", "seller"].includes(app)
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "Invalid application",
+
+        });
+
+      }
+
+
+      /* ---------------------------------------------------
+         OTP ATTEMPTS
+      --------------------------------------------------- */
 
       if (
         !canAttemptOtp(
@@ -1059,17 +1867,28 @@ export const verifySigninOTP =
           email
         )
       ) {
+
         return res.status(429).json({
+
           success: false,
+
           message:
             "Too many invalid OTP attempts. Please request a new OTP.",
+
         });
+
       }
+
+
+      /* ---------------------------------------------------
+         FIND USER
+      --------------------------------------------------- */
 
       const user =
         await User.findOne({
           email,
         });
+
 
       if (
         !user ||
@@ -1077,17 +1896,28 @@ export const verifySigninOTP =
         user.isBlocked ||
         !user.isVerified
       ) {
+
         recordOtpAttempt(
           "login-verify",
           email
         );
 
+
         return res.status(400).json({
+
           success: false,
+
           message:
             "Invalid email or OTP",
+
         });
+
       }
+
+
+      /* ---------------------------------------------------
+         OTP EXPIRY
+      --------------------------------------------------- */
 
       if (
         !user.otp ||
@@ -1095,75 +1925,579 @@ export const verifySigninOTP =
         user.otpExpiry.getTime() <
           Date.now()
       ) {
+
         recordOtpAttempt(
           "login-verify",
           email
         );
 
+
         return res.status(400).json({
+
           success: false,
+
           message:
             "OTP expired",
+
         });
+
       }
+
+
+      /* ---------------------------------------------------
+         VERIFY OTP
+      --------------------------------------------------- */
 
       const storedOtp =
         normalizeOtp(
           user.otp
         );
 
+
       if (
         storedOtp !== otp
       ) {
+
         recordOtpAttempt(
           "login-verify",
           email
         );
 
+
         return res.status(400).json({
+
           success: false,
+
           message:
             "Invalid OTP",
+
         });
+
       }
 
-      user.otp = null;
+
+      /* ===================================================
+         SELLER APP
+      =================================================== */
+
+      if (
+        app === "seller"
+      ) {
+
+        const kycStatus =
+          user.sellerInfo
+            ?.verification
+            ?.status ||
+          null;
+
+
+        console.log(
+          "======================================"
+        );
+
+        console.log(
+          "🏪 SELLER OTP LOGIN"
+        );
+
+        console.log(
+          "Role:",
+          user.role
+        );
+
+        console.log(
+          "Seller Status:",
+          user.sellerStatus
+        );
+
+        console.log(
+          "KYC Status:",
+          kycStatus
+        );
+
+        console.log(
+          "======================================"
+        );
+
+
+        /* -------------------------------------------------
+           ROLE
+        ------------------------------------------------- */
+
+        if (
+          user.role !== "seller"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "This login is only available for seller accounts.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        /* -------------------------------------------------
+           SELLER APPROVAL
+        ------------------------------------------------- */
+
+        if (
+          user.sellerStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        /* -------------------------------------------------
+           KYC APPROVAL
+        ------------------------------------------------- */
+
+        if (
+          kycStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is approved, but KYC verification is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        /* -------------------------------------------------
+           SELLER MODE
+        ------------------------------------------------- */
+
+        user.activeMode =
+          "seller";
+
+
+        console.log(
+          "✅ Seller access approved"
+        );
+
+        console.log(
+          "✅ KYC verified"
+        );
+
+        console.log(
+          "✅ Active mode = seller"
+        );
+
+      }
+
+
+      /* ===================================================
+         CUSTOMER APP
+      =================================================== */
+
+      if (
+        app === "customer"
+      ) {
+
+        user.activeMode =
+          "customer";
+
+
+        console.log(
+          "🛍️ Active mode = customer"
+        );
+
+      }
+
+
+      /* ---------------------------------------------------
+         CLEAR OTP
+      --------------------------------------------------- */
+
+      user.otp =
+        null;
+
       user.otpExpiry =
         null;
 
       user.lastLogin =
         new Date();
 
+
+      /* ---------------------------------------------------
+         SAVE
+      --------------------------------------------------- */
+
       await user.save();
+
+
+      console.log(
+        "✅ User saved"
+      );
+
+
+      /* ---------------------------------------------------
+         CLEAR ATTEMPTS
+      --------------------------------------------------- */
 
       clearOtpAttempts(
         "login-verify",
         email
       );
 
+
+      /* ---------------------------------------------------
+         GENERATE TOKEN
+      --------------------------------------------------- */
+
       const token =
         generateToken(
           user
         );
 
+
+      /* ---------------------------------------------------
+         RESPONSE
+      --------------------------------------------------- */
+
+      const responseUser =
+        safeAuthResponse(
+          user
+        );
+
+
+      console.log(
+        "========== OTP LOGIN RESPONSE =========="
+      );
+
+      console.log(
+        "Role:",
+        responseUser.role
+      );
+
+      console.log(
+        "Seller Status:",
+        responseUser.sellerStatus
+      );
+
+      console.log(
+        "KYC Status:",
+        responseUser.sellerVerificationStatus
+      );
+
+      console.log(
+        "Active Mode:",
+        responseUser.activeMode
+      );
+
+      console.log(
+        "========================================"
+      );
+
+
       return res.status(200).json({
+
         success: true,
+
         message:
           "Login successful",
+
         token,
+
         user:
-          safeAuthResponse(
-            user
-          ),
+          responseUser,
+
       });
 
+
     } catch (error) {
+
       return unexpectedError(
         res,
         error,
         "Verify Login OTP Error"
       );
+
     }
+
+  };
+
+/* =========================================================
+   SWITCH ACTIVE MODE
+========================================================= */
+
+export const switchActiveMode =
+  async (req, res) => {
+
+    try {
+
+      const user =
+        await getAuthenticatedUser(
+          req
+        );
+
+
+      if (!user) {
+
+        return res.status(401).json({
+
+          success: false,
+
+          message:
+            "Authentication required",
+
+        });
+
+      }
+
+
+      if (
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+
+        return res.status(403).json({
+
+          success: false,
+
+          message:
+            "This account is not available",
+
+        });
+
+      }
+
+
+      const mode =
+        String(
+          req.body?.activeMode ||
+          req.body?.app ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+
+      if (
+        !["customer", "seller"].includes(
+          mode
+        )
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "activeMode must be customer or seller",
+
+        });
+
+      }
+
+
+      /* ===================================================
+         SELLER MODE
+      =================================================== */
+
+      if (
+        mode === "seller"
+      ) {
+
+        const kycStatus =
+          user.sellerInfo
+            ?.verification
+            ?.status ||
+          null;
+
+
+        console.log(
+          "========== SWITCH SELLER MODE =========="
+        );
+
+        console.log(
+          "Role:",
+          user.role
+        );
+
+        console.log(
+          "Seller Status:",
+          user.sellerStatus
+        );
+
+        console.log(
+          "KYC Status:",
+          kycStatus
+        );
+
+        console.log(
+          "========================================"
+        );
+
+
+        if (
+          user.role !== "seller"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "This account is not registered as a seller.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        if (
+          user.sellerStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+
+        if (
+          kycStatus !==
+          "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Your seller account is approved, but KYC verification is not approved.",
+
+            sellerStatus:
+              user.sellerStatus || null,
+
+            sellerVerificationStatus:
+              kycStatus,
+
+          });
+
+        }
+
+      }
+
+
+      /* ===================================================
+         CHANGE MODE
+      =================================================== */
+
+      user.activeMode =
+        mode;
+
+
+      await user.save();
+
+
+      /* ---------------------------------------------------
+         NEW TOKEN
+      --------------------------------------------------- */
+
+      const token =
+        generateToken(
+          user
+        );
+
+
+      /* ---------------------------------------------------
+         RESPONSE USER
+      --------------------------------------------------- */
+
+      const responseUser =
+        safeAuthResponse(
+          user
+        );
+
+
+      console.log(
+        "✅ ACTIVE MODE CHANGED:",
+        mode
+      );
+
+
+      return res.status(200).json({
+
+        success: true,
+
+        message:
+          `Active mode changed to ${mode}`,
+
+        token,
+
+        user:
+          responseUser,
+
+      });
+
+
+    } catch (error) {
+
+      return unexpectedError(
+        res,
+        error,
+        "Switch Active Mode Error"
+      );
+
+    }
+
   };
 
 /* =========================================================
@@ -1735,6 +3069,17 @@ export const resendLoginOTP =
         });
       }
 
+      const app = String(
+        req.body?.app || "customer"
+      ).trim().toLowerCase();
+
+      if (!["customer", "seller"].includes(app)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid application",
+        });
+      }
+
       if (
         !canAttemptOtp(
           "login-resend",
@@ -1763,6 +3108,16 @@ export const resendLoginOTP =
           success: true,
           message:
             "If the account is eligible, a login OTP has been sent.",
+        });
+      }
+
+      if (app === "seller" &&
+        (user.role !== "seller" || user.sellerStatus !== "approved")
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Your seller account is not approved.",
+          sellerStatus: user.sellerStatus || null,
         });
       }
 
@@ -1866,50 +3221,113 @@ export const getUsers = async (
    GET ME
 ========================================================= */
 
-export const getMe = async (
-  req,
-  res
-) => {
-  try {
-    const user =
-      await getAuthenticatedUser(
-        req
-      );
+export const getMe =
+  async (req, res) => {
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message:
-          "Authentication required",
-      });
-    }
+    try {
 
-    if (
-      user.isDeleted
-    ) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "This account is not available",
-      });
-    }
+      const user =
+        await getAuthenticatedUser(
+          req
+        );
 
-    return res.status(200).json({
-      success: true,
-      user:
+
+      if (!user) {
+
+        return res.status(401).json({
+
+          success: false,
+
+          message:
+            "Authentication required",
+
+        });
+
+      }
+
+
+      if (
+        user.isDeleted
+      ) {
+
+        return res.status(403).json({
+
+          success: false,
+
+          message:
+            "This account is not available",
+
+        });
+
+      }
+
+
+      /* ---------------------------------------------------
+         BUILD SAME USER SHAPE AS LOGIN
+      --------------------------------------------------- */
+
+      const responseUser =
         safeUserResponse(
           user
-        ),
-    });
+        );
 
-  } catch (error) {
-    return unexpectedError(
-      res,
-      error,
-      "Get Me Error"
-    );
-  }
-};
+
+      console.log(
+        "========== AUTH ME =========="
+      );
+
+      console.log(
+        "User ID:",
+        responseUser.id ||
+        responseUser._id
+      );
+
+      console.log(
+        "Role:",
+        responseUser.role
+      );
+
+      console.log(
+        "Seller Status:",
+        responseUser.sellerStatus
+      );
+
+      console.log(
+        "KYC Status:",
+        responseUser.sellerVerificationStatus
+      );
+
+      console.log(
+        "Active Mode:",
+        responseUser.activeMode
+      );
+
+      console.log(
+        "=============================="
+      );
+
+
+      return res.status(200).json({
+
+        success: true,
+
+        user:
+          responseUser,
+
+      });
+
+
+    } catch (error) {
+
+      return unexpectedError(
+        res,
+        error,
+        "Get Me Error"
+      );
+
+    }
+
+  };
 
 /* =========================================================
    UPDATE PROFILE

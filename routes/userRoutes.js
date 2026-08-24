@@ -6,6 +6,7 @@ import {
   updateUserPassword,
   deleteUser,
   deleteMyAccount,
+  getSellerApplicationUser,
   applySeller,
   approveSeller,
   rejectSeller,
@@ -63,6 +64,10 @@ router.delete(
   authorizeRoles("admin"),
   deleteUser
 );
+router.get(
+  "/seller/application-user",
+  getSellerApplicationUser
+);
 /* =====================================
    SELLER APPLICATION
 ===================================== */
@@ -75,7 +80,6 @@ router.post(
 router.put(
   "/seller/complete-profile",
   authMiddleware,
-  authorizeRoles("seller"),
   completeSellerProfile
 );
 

@@ -30,68 +30,182 @@ const isAccountInactive = (user) => {
 /* =========================================================
    SAFE USER RESPONSE
 ========================================================= */
+/* =========================================================
+   SAFE USER RESPONSE
+========================================================= */
 
 const sanitizeUser = (user) => {
+
   if (!user) {
     return null;
   }
 
   return {
+
     _id: user._id,
-    firstName: user.firstName || "",
-    lastName: user.lastName || "",
-    email: user.email || "",
-    phone: user.phone || "",
-    image: user.image || "",
-    provider: user.provider || "credentials",
-    role: user.role,
-    sellerStatus: user.sellerStatus || null,
 
-    isVerified: Boolean(user.isVerified),
+    firstName:
+      user.firstName || "",
 
-    isEmailVerified: Boolean(user.isEmailVerified),
+    lastName:
+      user.lastName || "",
 
-    isPhoneVerified: Boolean(user.isPhoneVerified),
+    email:
+      user.email || "",
 
-    isBlocked: Boolean(user.isBlocked),
+    phone:
+      user.phone || "",
 
-    isDeleted: Boolean(user.isDeleted),
+    image:
+      user.image || "",
 
-    createdAt: user.createdAt,
+    provider:
+      user.provider || "credentials",
 
-    updatedAt: user.updatedAt,
+    role:
+      user.role,
+
+    activeMode:
+      user.activeMode || "customer",
+
+    /*
+    |--------------------------------------------------------------------------
+    | SELLER STATUS
+    |--------------------------------------------------------------------------
+    */
+
+    sellerStatus:
+      user.sellerStatus || null,
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | SELLER KYC VERIFICATION STATUS
+    |--------------------------------------------------------------------------
+    |
+    | MongoDB stores this here:
+    |
+    | sellerInfo.verification.status
+    |
+    | We expose it as:
+    |
+    | sellerVerificationStatus
+    |
+    |--------------------------------------------------------------------------
+    */
+
+    sellerVerificationStatus:
+      user.sellerInfo?.verification?.status || null,
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | SELLER VERIFICATION DETAILS
+    |--------------------------------------------------------------------------
+    */
+
+    sellerVerification:
+      user.sellerInfo?.verification
+        ? {
+            status:
+              user.sellerInfo.verification.status ||
+              "pending",
+
+            rejectionReason:
+              user.sellerInfo.verification.rejectionReason ||
+              "",
+
+            verifiedAt:
+              user.sellerInfo.verification.verifiedAt ||
+              null,
+
+            verifiedBy:
+              user.sellerInfo.verification.verifiedBy ||
+              null,
+          }
+        : null,
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCOUNT VERIFICATION
+    |--------------------------------------------------------------------------
+    */
+
+    isVerified:
+      Boolean(user.isVerified),
+
+    isEmailVerified:
+      Boolean(user.isEmailVerified),
+
+    isPhoneVerified:
+      Boolean(user.isPhoneVerified),
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCOUNT STATUS
+    |--------------------------------------------------------------------------
+    */
+
+    isBlocked:
+      Boolean(user.isBlocked),
+
+    isDeleted:
+      Boolean(user.isDeleted),
+
+
+    createdAt:
+      user.createdAt,
+
+    updatedAt:
+      user.updatedAt,
+
   };
 };
 
 /* =========================================================
-   SELLER KYC CHECK
+   CHECK REQUIRED SELLER DOCUMENTS
 ========================================================= */
 
 const checkRequiredSellerDocuments = (seller) => {
-  const kyc = seller?.sellerInfo?.kyc;
+  const kyc =
+    seller?.sellerInfo?.kyc;
 
   const hasAadhaar = Boolean(
-    kyc?.aadhaar?.frontImage && kyc?.aadhaar?.backImage,
+    kyc?.aadhaar?.frontImage &&
+    kyc?.aadhaar?.backImage
   );
 
-  const hasPan = Boolean(kyc?.pan?.image);
+  const hasPan = Boolean(
+    kyc?.pan?.image
+  );
 
-  const hasBankProof = Boolean(kyc?.bankProof?.image);
+  const hasBankProof = Boolean(
+    kyc?.bankProof?.image
+  );
 
   /*
-    GST is optional here.
+     GST is optional.
 
-    If GST must be mandatory for
-    your marketplace, change this
-    accordingly.
+     Required:
+       Aadhaar front
+       Aadhaar back
+       PAN
+       Bank proof
   */
 
   return {
     hasAadhaar,
+
     hasPan,
+
     hasBankProof,
 
-    complete: hasAadhaar && hasPan && hasBankProof,
+    complete:
+      hasAadhaar &&
+      hasPan &&
+      hasBankProof,
   };
 };
 
@@ -108,7 +222,20 @@ const validateSellerForAction = (seller) => {
     };
   }
 
-  if (!isSeller(seller)) {
+  /*
+     During onboarding the account can still
+     technically have role=user.
+
+     Therefore this helper should NOT require
+     role=seller for profile/document actions.
+  */
+
+  if (
+    ![
+      "user",
+      "seller",
+    ].includes(seller.role)
+  ) {
     return {
       valid: false,
       status: 403,
@@ -120,7 +247,8 @@ const validateSellerForAction = (seller) => {
     return {
       valid: false,
       status: 403,
-      message: "Seller account has been deleted",
+      message:
+        "Seller account has been deleted",
     };
   }
 
@@ -128,7 +256,8 @@ const validateSellerForAction = (seller) => {
     return {
       valid: false,
       status: 403,
-      message: "Seller account is blocked",
+      message:
+        "Seller account is blocked",
     };
   }
 
@@ -141,14 +270,21 @@ const validateSellerForAction = (seller) => {
    VALIDATE REASON
 ========================================================= */
 
-const validateReason = (reason, fieldName = "Reason") => {
+const validateReason = (
+  reason,
+  fieldName = "Reason"
+) => {
   if (typeof reason !== "string") {
     return false;
   }
 
-  const value = reason.trim();
+  const value =
+    reason.trim();
 
-  return value.length >= 5 && value.length <= 1000;
+  return (
+    value.length >= 5 &&
+    value.length <= 1000
+  );
 };
 
 /* =========================================================
@@ -721,587 +857,931 @@ export const getSellerDetails = async (req, res) => {
   }
 };
 /* =========================================================
+   GET REGISTERED USER FOR SELLER APPLICATION
+========================================================= */
+
+export const getSellerApplicationUser =
+  async (req, res) => {
+    try {
+      /*
+         Prefer authenticated user instead of
+         accepting arbitrary email from public request.
+
+         This prevents another person from looking
+         up seller onboarding information.
+      */
+
+      const userId =
+        req.user?.id ||
+        req.user?._id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Authentication required",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          _id: userId,
+          isDeleted: false,
+        }).select(
+          "_id " +
+          "firstName " +
+          "lastName " +
+          "email " +
+          "phone " +
+          "image " +
+          "role " +
+          "sellerStatus " +
+          "sellerInfo.store " +
+          "sellerInfo.business"
+        );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "No registered account found",
+        });
+      }
+
+      /* ACCOUNT CHECK */
+
+      if (user.isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "This account is blocked. Please contact support.",
+        });
+      }
+
+      /* ALREADY APPROVED */
+
+      if (
+        user.role === "seller" &&
+        user.sellerStatus === "approved"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This account already has an approved seller account.",
+        });
+      }
+
+      /* PENDING */
+
+      if (
+        user.sellerStatus === "pending"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Your seller application is already under review.",
+        });
+      }
+
+      /* SUSPENDED */
+
+      if (
+        user.sellerStatus === "suspended"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Your seller account is suspended. Please contact support.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          "Registered account found. You can apply to become a seller.",
+
+        user: {
+          _id: user._id,
+
+          firstName:
+            user.firstName || "",
+
+          lastName:
+            user.lastName || "",
+
+          email:
+            user.email || "",
+
+          phone:
+            user.phone || "",
+
+          image:
+            user.image || "",
+
+          role:
+            user.role,
+
+          sellerStatus:
+            user.sellerStatus || null,
+
+          store: {
+            shopName:
+              user.sellerInfo?.store?.shopName ||
+              "",
+
+            description:
+              user.sellerInfo?.store?.description ||
+              "",
+
+            website:
+              user.sellerInfo?.store?.website ||
+              "",
+
+            supportEmail:
+              user.sellerInfo?.store?.supportEmail ||
+              "",
+
+            supportPhone:
+              user.sellerInfo?.store?.supportPhone ||
+              "",
+          },
+
+          business: {
+            businessType:
+              user.sellerInfo?.business?.businessType ||
+              "",
+
+            ownerName:
+              user.sellerInfo?.business?.ownerName ||
+              "",
+
+            registrationNumber:
+              user.sellerInfo?.business?.registrationNumber ||
+              "",
+          },
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Get Seller Application User Error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to fetch registered account",
+      });
+    }
+  };
+
+
+/* =========================================================
    APPLY TO BECOME SELLER
 ========================================================= */
 
-export const applySeller = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
+/* =========================================================
+   APPLY TO BECOME SELLER
+========================================================= */
 
-    if (!user) {
-      return res.status(404).json({
+export const applySeller =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user?.id ||
+        req.user?._id;
+
+      const user =
+        await User.findById(userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "User not found",
+        });
+      }
+
+      /* ACCOUNT CHECK */
+
+      if (user.isDeleted) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Deleted account cannot become a seller",
+        });
+      }
+
+      if (user.isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Blocked account cannot become a seller",
+        });
+      }
+
+      /* ALREADY SELLER */
+
+      if (
+        user.role === "seller" &&
+        user.sellerStatus === "approved"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "You already have an approved seller account",
+        });
+      }
+
+      /* ALREADY PENDING */
+
+      if (
+        user.sellerStatus === "pending"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Your seller application is already under review",
+        });
+      }
+
+      /* SUSPENDED */
+
+      if (
+        user.sellerStatus === "suspended"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Your seller account is suspended. Please contact support.",
+        });
+      }
+
+      const {
+        store = {},
+        business = {},
+      } = req.body;
+
+      /* SHOP NAME */
+
+      const shopName =
+        String(
+          store.shopName || ""
+        ).trim();
+
+      if (!shopName) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Shop name is required",
+        });
+      }
+
+      if (
+        shopName.length < 2
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Shop name must be at least 2 characters",
+        });
+      }
+
+      /* CREATE SELLER INFO */
+
+      if (!user.sellerInfo) {
+        user.sellerInfo = {};
+      }
+
+      if (!user.sellerInfo.store) {
+        user.sellerInfo.store = {};
+      }
+
+      if (!user.sellerInfo.business) {
+        user.sellerInfo.business = {};
+      }
+
+      if (!user.sellerInfo.verification) {
+        user.sellerInfo.verification = {};
+      }
+
+      /* STORE */
+
+      user.sellerInfo.store.shopName =
+        shopName;
+
+      if (
+        store.description !==
+        undefined
+      ) {
+        user.sellerInfo.store.description =
+          String(
+            store.description
+          ).trim();
+      }
+
+      if (
+        store.website !==
+        undefined
+      ) {
+        user.sellerInfo.store.website =
+          String(
+            store.website
+          ).trim();
+      }
+
+      if (
+        store.supportEmail !==
+        undefined
+      ) {
+        user.sellerInfo.store.supportEmail =
+          String(
+            store.supportEmail
+          ).trim();
+      }
+
+      if (
+        store.supportPhone !==
+        undefined
+      ) {
+        user.sellerInfo.store.supportPhone =
+          String(
+            store.supportPhone
+          ).trim();
+      }
+
+      /* BUSINESS */
+
+      if (
+        business.businessType !==
+        undefined
+      ) {
+        user.sellerInfo.business.businessType =
+          business.businessType;
+      }
+
+      if (
+        business.ownerName !==
+        undefined
+      ) {
+        user.sellerInfo.business.ownerName =
+          String(
+            business.ownerName
+          ).trim();
+      }
+
+      if (
+        business.registrationNumber !==
+        undefined
+      ) {
+        user.sellerInfo.business.registrationNumber =
+          String(
+            business.registrationNumber
+          ).trim();
+      }
+
+      /* SELLER APPLICATION */
+
+      /*
+         IMPORTANT:
+
+         Do not change role=user to seller here.
+
+         role becomes seller only after admin approval.
+      */
+
+      user.sellerStatus =
+        "pending";
+
+      user.sellerAppliedAt =
+        new Date();
+
+      user.sellerApprovedAt =
+        null;
+
+      user.sellerRejectedAt =
+        null;
+
+      user.sellerRejectedReason =
+        "";
+
+      user.sellerInfo.verification.status =
+        "pending";
+
+      /* APPROVAL HISTORY */
+
+      if (
+        !user.sellerInfo.approvalHistory
+      ) {
+        user.sellerInfo.approvalHistory =
+          [];
+      }
+
+      user.sellerInfo.approvalHistory.push({
+        action: "applied",
+
+        reason:
+          "Seller application submitted",
+
+        performedBy:
+          user._id,
+
+        date:
+          new Date(),
+      });
+
+      await user.save();
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          "Seller application submitted successfully. Please upload your KYC documents.",
+
+        sellerStatus:
+          user.sellerStatus,
+
+        sellerAppliedAt:
+          user.sellerAppliedAt,
+
+        documents:
+          checkRequiredSellerDocuments(
+            user
+          ),
+
+        user:
+          sanitizeUser(user),
+      });
+    } catch (error) {
+      console.error(
+        "Apply Seller Error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        message: "User not found",
+        message:
+          "Unable to submit seller application",
       });
     }
-
-    /* =====================================
-       ACCOUNT CHECKS
-    ===================================== */
-
-    if (user.isDeleted) {
-      return res.status(403).json({
-        success: false,
-        message: "Deleted account cannot become a seller",
-      });
-    }
-
-    if (user.isBlocked) {
-      return res.status(403).json({
-        success: false,
-        message: "Blocked account cannot become a seller",
-      });
-    }
-
-    /* =====================================
-       ALREADY SELLER
-    ===================================== */
-
-    if (user.role === "seller" && user.sellerStatus === "approved") {
-      return res.status(400).json({
-        success: false,
-        message: "You already have an approved seller account",
-      });
-    }
-
-    /* =====================================
-       APPLICATION ALREADY PENDING
-    ===================================== */
-
-    if (user.sellerStatus === "pending") {
-      return res.status(400).json({
-        success: false,
-        message: "Your seller application is already under review",
-      });
-    }
-
-    /* =====================================
-       SUSPENDED SELLER
-    ===================================== */
-
-    if (user.sellerStatus === "suspended") {
-      return res.status(403).json({
-        success: false,
-        message: "Your seller account is suspended. Please contact support.",
-      });
-    }
-
-    /* =====================================
-       SELLER INFORMATION
-    ===================================== */
-
-    const { store = {}, business = {} } = req.body;
-
-    /* =====================================
-       BASIC VALIDATION
-    ===================================== */
-
-    const shopName = String(store.shopName || "").trim();
-
-    if (!shopName) {
-      return res.status(400).json({
-        success: false,
-        message: "Shop name is required",
-      });
-    }
-
-    if (shopName.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: "Shop name must be at least 2 characters",
-      });
-    }
-
-    /* =====================================
-       CREATE / UPDATE SELLER PROFILE
-    ===================================== */
-
-    if (!user.sellerInfo) {
-      user.sellerInfo = {};
-    }
-
-    if (!user.sellerInfo.store) {
-      user.sellerInfo.store = {};
-    }
-
-    if (!user.sellerInfo.business) {
-      user.sellerInfo.business = {};
-    }
-
-    if (!user.sellerInfo.verification) {
-      user.sellerInfo.verification = {};
-    }
-
-    /* STORE */
-
-    user.sellerInfo.store.shopName = shopName;
-
-    if (store.description !== undefined) {
-      user.sellerInfo.store.description = String(store.description).trim();
-    }
-
-    if (store.website !== undefined) {
-      user.sellerInfo.store.website = String(store.website).trim();
-    }
-
-    if (store.supportEmail !== undefined) {
-      user.sellerInfo.store.supportEmail = String(store.supportEmail).trim();
-    }
-
-    if (store.supportPhone !== undefined) {
-      user.sellerInfo.store.supportPhone = String(store.supportPhone).trim();
-    }
-
-    /* BUSINESS */
-
-    if (business.businessType !== undefined) {
-      user.sellerInfo.business.businessType = business.businessType;
-    }
-
-    if (business.ownerName !== undefined) {
-      user.sellerInfo.business.ownerName = String(business.ownerName).trim();
-    }
-
-    if (business.registrationNumber !== undefined) {
-      user.sellerInfo.business.registrationNumber = String(
-        business.registrationNumber,
-      ).trim();
-    }
-
-    /* =====================================
-       SELLER APPLICATION
-    ===================================== */
-
-    user.sellerStatus = "pending";
-
-    user.sellerAppliedAt = new Date();
-
-    user.sellerApprovedAt = null;
-
-    user.sellerRejectedAt = null;
-
-    user.sellerRejectedReason = "";
-
-    user.sellerInfo.verification.status = "pending";
-
-    /* =====================================
-       APPROVAL HISTORY
-    ===================================== */
-
-    if (!user.sellerInfo.approvalHistory) {
-      user.sellerInfo.approvalHistory = [];
-    }
-
-    user.sellerInfo.approvalHistory.push({
-      action: "applied",
-
-      reason: "Seller application submitted",
-
-      performedBy: user._id,
-
-      date: new Date(),
-    });
-
-    await user.save();
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    return res.status(201).json({
-      success: true,
-
-      message:
-        "Seller application submitted successfully. Waiting for admin approval.",
-
-      sellerStatus: user.sellerStatus,
-
-      sellerAppliedAt: user.sellerAppliedAt,
-
-      user: sanitizeUser(user),
-    });
-  } catch (error) {
-    console.error("Apply Seller Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to submit seller application",
-    });
-  }
-};
+  };
 /* =========================================================
    COMPLETE SELLER PROFILE
 ========================================================= */
 
-export const completeSellerProfile = async (req, res) => {
-  try {
-    const seller = await User.findById(req.user.id);
+export const completeSellerProfile =
+  async (req, res) => {
+    try {
+      const seller =
+        await User.findById(
+          req.user?.id ||
+          req.user?._id
+        );
 
-    const validation = validateSellerForAction(seller);
+      const validation =
+        validateSellerForAction(
+          seller
+        );
 
-    if (!validation.valid) {
-      return res.status(validation.status).json({
+      if (!validation.valid) {
+        return res.status(
+          validation.status
+        ).json({
+          success: false,
+          message:
+            validation.message,
+        });
+      }
+
+      /*
+         User must have started seller application.
+      */
+
+      if (
+        ![
+          "pending",
+          "rejected",
+          "approved",
+        ].includes(
+          seller.sellerStatus
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Please apply to become a seller first",
+        });
+      }
+
+      const store =
+        req.body.store || {};
+
+      const business =
+        req.body.business || {};
+
+      /* STORE */
+
+      if (!seller.sellerInfo) {
+        seller.sellerInfo = {};
+      }
+
+      if (!seller.sellerInfo.store) {
+        seller.sellerInfo.store = {};
+      }
+
+      if (!seller.sellerInfo.business) {
+        seller.sellerInfo.business = {};
+      }
+
+      const allowedStoreFields = [
+        "shopName",
+        "description",
+        "website",
+        "supportEmail",
+        "supportPhone",
+        "isOpen",
+        "vacationMode",
+      ];
+
+      for (
+        const field of
+        allowedStoreFields
+      ) {
+        if (
+          store[field] !==
+          undefined
+        ) {
+          seller.sellerInfo.store[
+            field
+          ] =
+            store[field];
+        }
+      }
+
+      const allowedBusinessFields = [
+        "businessType",
+        "ownerName",
+        "registrationNumber",
+      ];
+
+      for (
+        const field of
+        allowedBusinessFields
+      ) {
+        if (
+          business[field] !==
+          undefined
+        ) {
+          seller.sellerInfo.business[
+            field
+          ] =
+            business[field];
+        }
+      }
+
+      await seller.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Seller profile completed successfully",
+      });
+    } catch (error) {
+      console.error(
+        "Complete Seller Profile Error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        message: validation.message,
+        message:
+          "Unable to complete seller profile",
       });
     }
+  };
 
-    const store = req.body.store || {};
-
-    const business = req.body.business || {};
-
-    /* =====================================================
-         STORE WHITELIST
-      ===================================================== */
-
-    const allowedStoreFields = [
-      "shopName",
-      "description",
-      "website",
-      "supportEmail",
-      "supportPhone",
-      "isOpen",
-      "vacationMode",
-    ];
-
-    for (const field of allowedStoreFields) {
-      if (store[field] !== undefined) {
-        seller.sellerInfo.store[field] = store[field];
-      }
-    }
-
-    /* =====================================================
-         BUSINESS WHITELIST
-      ===================================================== */
-
-    const allowedBusinessFields = [
-      "businessType",
-      "ownerName",
-      "registrationNumber",
-    ];
-
-    for (const field of allowedBusinessFields) {
-      if (business[field] !== undefined) {
-        seller.sellerInfo.business[field] = business[field];
-      }
-    }
-
-    await seller.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Seller profile completed successfully",
-    });
-  } catch (error) {
-    console.error("Complete Seller Profile Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to complete seller profile",
-    });
-  }
-};
 
 /* =========================================================
    UPLOAD SELLER DOCUMENTS
 ========================================================= */
 
-export const uploadSellerDocuments = async (req, res) => {
-  try {
+export const uploadSellerDocuments =
+  async (req, res) => {
+    try {
+      const user =
+        await User.findById(
+          req.user?.id ||
+          req.user?._id
+        );
 
-    const user = await User.findById(req.user.id);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "User not found",
+        });
+      }
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
+      /* ACCOUNT CHECK */
+
+      if (user.isDeleted) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Deleted account cannot upload seller documents",
+        });
+      }
+
+      if (user.isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Blocked account cannot upload seller documents",
+        });
+      }
+
+      /*
+         Documents can only be uploaded after
+         seller application has been submitted.
+
+         Approved sellers can also re-upload.
+      */
+
+      if (
+        ![
+          "pending",
+          "rejected",
+          "approved",
+        ].includes(
+          user.sellerStatus
+        )
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Please apply to become a seller before uploading documents",
+        });
+      }
+
+      /* CREATE OBJECTS */
+
+      if (!user.sellerInfo) {
+        user.sellerInfo = {};
+      }
+
+      if (!user.sellerInfo.store) {
+        user.sellerInfo.store = {};
+      }
+
+      if (!user.sellerInfo.kyc) {
+        user.sellerInfo.kyc = {};
+      }
+
+      if (!user.sellerInfo.kyc.aadhaar) {
+        user.sellerInfo.kyc.aadhaar = {};
+      }
+
+      if (!user.sellerInfo.kyc.pan) {
+        user.sellerInfo.kyc.pan = {};
+      }
+
+      if (!user.sellerInfo.kyc.gst) {
+        user.sellerInfo.kyc.gst = {};
+      }
+
+      if (!user.sellerInfo.kyc.bankProof) {
+        user.sellerInfo.kyc.bankProof = {};
+      }
+
+      if (!user.sellerInfo.verification) {
+        user.sellerInfo.verification = {};
+      }
+
+      const files =
+        req.files || {};
+
+      /* =====================================================
+         STORE LOGO
+      ===================================================== */
+
+      if (
+        files.shopLogo?.[0]
+      ) {
+        user.sellerInfo.store.shopLogo =
+          files.shopLogo[0].path;
+      }
+
+      /* =====================================================
+         STORE BANNER
+      ===================================================== */
+
+      if (
+        files.shopBanner?.[0]
+      ) {
+        user.sellerInfo.store.shopBanner =
+          files.shopBanner[0].path;
+      }
+
+      /* =====================================================
+         AADHAAR FRONT
+      ===================================================== */
+
+      if (
+        files.aadhaarFront?.[0]
+      ) {
+        user.sellerInfo.kyc.aadhaar.frontImage =
+          files.aadhaarFront[0].path;
+      }
+
+      /* =====================================================
+         AADHAAR BACK
+      ===================================================== */
+
+      if (
+        files.aadhaarBack?.[0]
+      ) {
+        user.sellerInfo.kyc.aadhaar.backImage =
+          files.aadhaarBack[0].path;
+      }
+
+      /* =====================================================
+         PAN
+      ===================================================== */
+
+      if (
+        files.panImage?.[0]
+      ) {
+        user.sellerInfo.kyc.pan.image =
+          files.panImage[0].path;
+      }
+
+      /* =====================================================
+         GST - OPTIONAL
+      ===================================================== */
+
+      if (
+        files.gstCertificate?.[0]
+      ) {
+        user.sellerInfo.kyc.gst.certificate =
+          files.gstCertificate[0].path;
+      }
+
+      /* =====================================================
+         BANK PROOF
+      ===================================================== */
+
+      if (
+        files.bankProof?.[0]
+      ) {
+        user.sellerInfo.kyc.bankProof.image =
+          files.bankProof[0].path;
+      }
+
+      /* =====================================================
+         REQUIRED DOCUMENT CHECK
+      ===================================================== */
+
+      const documents =
+        checkRequiredSellerDocuments(
+          user
+        );
+
+      /*
+         Do not save the seller as approved
+         here.
+
+         Documents are only submitted.
+         Admin must approve.
+      */
+
+      if (!documents.complete) {
+        /*
+           Save uploaded documents even when
+           the set is incomplete.
+
+           This allows the user to upload the
+           missing document later.
+        */
+
+        user.sellerStatus =
+          "pending";
+
+        user.sellerInfo.verification.status =
+          "pending";
+
+        await user.save();
+
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Aadhaar front, Aadhaar back, PAN and bank proof are required",
+
+          documents,
+
+          missingDocuments: {
+            aadhaarFront:
+              !documents.hasAadhaar ||
+              !Boolean(
+                user.sellerInfo?.kyc?.aadhaar
+                  ?.frontImage
+              ),
+
+            aadhaarBack:
+              !documents.hasAadhaar ||
+              !Boolean(
+                user.sellerInfo?.kyc?.aadhaar
+                  ?.backImage
+              ),
+
+            pan:
+              !documents.hasPan,
+
+            bankProof:
+              !documents.hasBankProof,
+          },
+        });
+      }
+
+      /* =====================================================
+         ALL REQUIRED DOCUMENTS PRESENT
+      ===================================================== */
+
+      user.sellerStatus =
+        "pending";
+
+      user.sellerAppliedAt =
+        user.sellerAppliedAt ||
+        new Date();
+
+      user.sellerApprovedAt =
+        null;
+
+      user.sellerRejectedAt =
+        null;
+
+      user.sellerRejectedReason =
+        "";
+
+      user.sellerInfo.verification.status =
+        "pending";
+
+      /* APPROVAL HISTORY */
+
+      if (
+        !user.sellerInfo.approvalHistory
+      ) {
+        user.sellerInfo.approvalHistory =
+          [];
+      }
+
+      user.sellerInfo.approvalHistory.push({
+        action: "applied",
+
+        reason:
+          "Seller documents submitted",
+
+        performedBy:
+          user._id,
+
+        date:
+          new Date(),
       });
-    }
 
-    /* =====================================
-       ACCOUNT CHECK
-    ===================================== */
+      await user.save();
 
-    if (user.isDeleted) {
-      return res.status(403).json({
-        success: false,
-        message: "Deleted account cannot upload seller documents",
-      });
-    }
+      return res.status(200).json({
+        success: true,
 
-    if (user.isBlocked) {
-      return res.status(403).json({
-        success: false,
-        message: "Blocked account cannot upload seller documents",
-      });
-    }
-
-
-    /* =====================================
-       SELLER APPLICATION CHECK
-    ===================================== */
-
-    // A normal user is allowed to upload
-    // documents only after applying.
-
-    if (
-      user.role === "user" &&
-      !["pending", "rejected"].includes(user.sellerStatus)
-    ) {
-      return res.status(403).json({
-        success: false,
         message:
-          "Please apply to become a seller before uploading documents",
-      });
-    }
+          "Seller documents uploaded successfully. Waiting for admin approval.",
 
+        sellerStatus:
+          user.sellerStatus,
 
-    // Already approved seller can optionally
-    // re-upload documents.
-
-    if (
-      user.role === "seller" &&
-      !["approved", "rejected", "pending"].includes(
-        user.sellerStatus
-      )
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Seller account is not eligible for document upload",
-      });
-    }
-
-
-    /* =====================================
-       MAKE SURE KYC OBJECTS EXIST
-    ===================================== */
-
-    if (!user.sellerInfo) {
-      user.sellerInfo = {};
-    }
-
-    if (!user.sellerInfo.store) {
-      user.sellerInfo.store = {};
-    }
-
-    if (!user.sellerInfo.kyc) {
-      user.sellerInfo.kyc = {};
-    }
-
-    if (!user.sellerInfo.kyc.aadhaar) {
-      user.sellerInfo.kyc.aadhaar = {};
-    }
-
-    if (!user.sellerInfo.kyc.pan) {
-      user.sellerInfo.kyc.pan = {};
-    }
-
-    if (!user.sellerInfo.kyc.gst) {
-      user.sellerInfo.kyc.gst = {};
-    }
-
-    if (!user.sellerInfo.kyc.bankProof) {
-      user.sellerInfo.kyc.bankProof = {};
-    }
-
-    if (!user.sellerInfo.verification) {
-      user.sellerInfo.verification = {};
-    }
-
-
-    /* =====================================
-       FILES
-    ===================================== */
-
-    const files = req.files || {};
-
-
-    /* =====================================
-       STORE LOGO
-    ===================================== */
-
-    if (files.shopLogo?.[0]) {
-
-      user.sellerInfo.store.shopLogo =
-        files.shopLogo[0].path;
-
-    }
-
-
-    /* =====================================
-       STORE BANNER
-    ===================================== */
-
-    if (files.shopBanner?.[0]) {
-
-      user.sellerInfo.store.shopBanner =
-        files.shopBanner[0].path;
-
-    }
-
-
-    /* =====================================
-       AADHAAR FRONT
-    ===================================== */
-
-    if (files.aadhaarFront?.[0]) {
-
-      user.sellerInfo.kyc.aadhaar.frontImage =
-        files.aadhaarFront[0].path;
-
-    }
-
-
-    /* =====================================
-       AADHAAR BACK
-    ===================================== */
-
-    if (files.aadhaarBack?.[0]) {
-
-      user.sellerInfo.kyc.aadhaar.backImage =
-        files.aadhaarBack[0].path;
-
-    }
-
-
-    /* =====================================
-       PAN
-    ===================================== */
-
-    if (files.panImage?.[0]) {
-
-      user.sellerInfo.kyc.pan.image =
-        files.panImage[0].path;
-
-    }
-
-
-    /* =====================================
-       GST
-    ===================================== */
-
-    if (files.gstCertificate?.[0]) {
-
-      user.sellerInfo.kyc.gst.certificate =
-        files.gstCertificate[0].path;
-
-    }
-
-
-    /* =====================================
-       BANK PROOF
-    ===================================== */
-
-    if (files.bankProof?.[0]) {
-
-      user.sellerInfo.kyc.bankProof.image =
-        files.bankProof[0].path;
-
-    }
-
-
-    /* =====================================
-       CHECK REQUIRED DOCUMENTS
-    ===================================== */
-
-    const documents =
-      checkRequiredSellerDocuments(user);
-
-
-    if (!documents.complete) {
-
-      return res.status(400).json({
-        success: false,
-        message:
-          "Aadhaar front, Aadhaar back, PAN and bank proof are required",
         documents,
+
+        user:
+          sanitizeUser(user),
       });
+    } catch (error) {
+      console.error(
+        "Upload Seller Documents Error:",
+        error
+      );
 
+      return res.status(500).json({
+        success: false,
+
+        message:
+          "Unable to upload seller documents",
+
+        error:
+          error.message,
+      });
     }
-
-
-    /* =====================================
-       SUBMISSION STATUS
-    ===================================== */
-
-    user.sellerStatus = "pending";
-
-    user.sellerAppliedAt =
-      user.sellerAppliedAt || new Date();
-
-    user.sellerApprovedAt = null;
-
-    user.sellerRejectedAt = null;
-
-    user.sellerRejectedReason = "";
-
-    user.sellerInfo.verification.status =
-      "pending";
-
-
-    /* =====================================
-       APPROVAL HISTORY
-    ===================================== */
-
-    if (!user.sellerInfo.approvalHistory) {
-      user.sellerInfo.approvalHistory = [];
-    }
-
-
-    /*
-      IMPORTANT:
-      Your schema previously rejected "applied".
-
-      Therefore use only an action value
-      that exists in your User schema.
-
-      If your enum contains "submitted",
-      use "submitted".
-    */
-
-    user.sellerInfo.approvalHistory.push({
-      action: "applied",
-      reason: "Seller documents submitted",
-      performedBy: user._id,
-      date: new Date(),
-    });
-
-
-    await user.save();
-
-
-    /* =====================================
-       RESPONSE
-    ===================================== */
-
-    return res.status(200).json({
-      success: true,
-      message:
-        "Seller documents uploaded successfully. Waiting for admin approval.",
-
-      sellerStatus:
-        user.sellerStatus,
-
-      documents,
-
-      user: sanitizeUser(user),
-    });
-
-  } catch (error) {
-
-    console.error(
-      "Upload Seller Documents Error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        "Unable to upload seller documents",
-      error: error.message,
-    });
-  }
-};
+  };
 
 /* =========================================================
    SUSPEND SELLER
@@ -1376,175 +1856,213 @@ export const suspendSeller = async (req, res) => {
 /* =========================================================
    APPROVE SELLER
 ========================================================= */
+export const approveSeller =
+  async (req, res) => {
+    try {
+      /* ADMIN */
 
-export const approveSeller = async (req, res) => {
-  try {
+      if (!isAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin access only",
+        });
+      }
 
-    // =====================================
-    // ADMIN CHECK
-    // =====================================
+      /* FIND SELLER */
 
-    if (!isAdmin(req)) {
-      return res.status(403).json({
-        success: false,
-        message: "Admin access only",
+      const seller =
+        await User.findById(
+          req.params.id
+        );
+
+      if (!seller) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "User not found",
+        });
+      }
+
+      /* ACCOUNT */
+
+      if (
+        seller.isBlocked ||
+        seller.isDeleted
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "User account is not active",
+        });
+      }
+
+      /* STATUS */
+
+      if (
+        seller.sellerStatus !==
+        "pending"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            `Seller application is not pending. Current status: ${seller.sellerStatus}`,
+        });
+      }
+
+      /* KYC */
+
+      const documents =
+        checkRequiredSellerDocuments(
+          seller
+        );
+
+      if (!documents.complete) {
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Seller must upload Aadhaar front, Aadhaar back, PAN and bank proof before approval",
+
+          documents,
+        });
+      }
+
+      /* =====================================================
+         APPROVE
+      ===================================================== */
+
+      seller.role =
+        "seller";
+
+      seller.sellerStatus =
+        "approved";
+
+      seller.sellerApprovedAt =
+        new Date();
+
+      seller.sellerRejectedAt =
+        null;
+
+      seller.sellerRejectedReason =
+        "";
+
+      /* VERIFICATION */
+
+      if (
+        !seller.sellerInfo
+          .verification
+      ) {
+        seller.sellerInfo.verification =
+          {};
+      }
+
+      seller.sellerInfo.verification.status =
+        "approved";
+
+      seller.sellerInfo.verification.verifiedBy =
+        req.user?.id ||
+        req.user?._id;
+
+      seller.sellerInfo.verification.verifiedAt =
+        new Date();
+
+      /* =====================================================
+         ACTIVE MODE
+      ===================================================== */
+
+      /*
+         Keep customer mode by default.
+
+         The seller can switch to seller mode
+         after approval using /active-mode.
+      */
+
+      if (
+        !seller.activeMode
+      ) {
+        seller.activeMode =
+          "customer";
+      }
+
+      /* APPROVAL HISTORY */
+
+      if (
+        !seller.sellerInfo
+          .approvalHistory
+      ) {
+        seller.sellerInfo.approvalHistory =
+          [];
+      }
+
+      seller.sellerInfo.approvalHistory.push({
+        action:
+          "approved",
+
+        reason:
+          "Seller application approved",
+
+        performedBy:
+          req.user?.id ||
+          req.user?._id,
+
+        date:
+          new Date(),
       });
-    }
 
+      await seller.save();
 
-    // =====================================
-    // FIND USER / SELLER APPLICATION
-    // =====================================
+      return res.status(200).json({
+        success: true,
 
-    const seller = await User.findById(req.params.id);
-
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-
-    // =====================================
-    // ACCOUNT CHECK
-    // =====================================
-
-    if (seller.isBlocked || seller.isDeleted) {
-      return res.status(403).json({
-        success: false,
-        message: "User account is not active",
-      });
-    }
-
-
-    // =====================================
-    // APPLICATION MUST BE PENDING
-    // =====================================
-
-    if (seller.sellerStatus !== "pending") {
-      return res.status(400).json({
-        success: false,
         message:
-          `Seller application is not pending. Current status: ${seller.sellerStatus}`,
+          "Seller approved successfully",
+
+        seller: {
+          _id:
+            seller._id,
+
+          firstName:
+            seller.firstName,
+
+          lastName:
+            seller.lastName,
+
+          email:
+            seller.email,
+
+          role:
+            seller.role,
+
+          activeMode:
+            seller.activeMode,
+
+          sellerStatus:
+            seller.sellerStatus,
+
+          sellerApprovedAt:
+            seller.sellerApprovedAt,
+
+          documents,
+        },
       });
-    }
+    } catch (error) {
+      console.error(
+        "Approve Seller Error:",
+        error
+      );
 
-
-    // =====================================
-    // REQUIRED DOCUMENT CHECK
-    // =====================================
-
-    const documents =
-      checkRequiredSellerDocuments(seller);
-
-    if (!documents.complete) {
-      return res.status(400).json({
+      return res.status(500).json({
         success: false,
+
         message:
-          "Seller must upload Aadhaar front, Aadhaar back, PAN and bank proof before approval",
-        documents,
+          "Unable to approve seller",
+
+        error:
+          error.message,
       });
     }
-
-
-    // =====================================
-    // CHANGE USER → SELLER
-    // =====================================
-
-    seller.role = "seller";
-
-    seller.sellerStatus = "approved";
-
-    seller.sellerApprovedAt = new Date();
-
-    seller.sellerRejectedAt = null;
-
-    seller.sellerRejectedReason = "";
-
-
-    // =====================================
-    // VERIFICATION
-    // =====================================
-
-    if (!seller.sellerInfo.verification) {
-      seller.sellerInfo.verification = {};
-    }
-
-    seller.sellerInfo.verification.status =
-      "approved";
-
-    seller.sellerInfo.verification.verifiedBy =
-      req.user._id;
-
-    seller.sellerInfo.verification.verifiedAt =
-      new Date();
-
-
-    // =====================================
-    // APPROVAL HISTORY
-    // =====================================
-
-    if (!seller.sellerInfo.approvalHistory) {
-      seller.sellerInfo.approvalHistory = [];
-    }
-
-    seller.sellerInfo.approvalHistory.push({
-      action: "approved",
-      reason: "Seller application approved",
-      performedBy: req.user._id,
-      date: new Date(),
-    });
-
-
-    // =====================================
-    // SAVE
-    // =====================================
-
-    await seller.save();
-
-
-    // =====================================
-    // RESPONSE
-    // =====================================
-
-    return res.status(200).json({
-      success: true,
-      message: "Seller approved successfully",
-
-      seller: {
-        _id: seller._id,
-        firstName: seller.firstName,
-        lastName: seller.lastName,
-        email: seller.email,
-
-        role: seller.role,
-
-        activeMode: seller.activeMode,
-
-        sellerStatus:
-          seller.sellerStatus,
-
-        sellerApprovedAt:
-          seller.sellerApprovedAt,
-      },
-    });
-
-  } catch (error) {
-
-    console.error(
-      "Approve Seller Error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        "Unable to approve seller",
-      error: error.message,
-    });
-  }
-};
+  };
 /* =========================================================
    UPDATE SELLER COMMISSION
 ========================================================= */
@@ -1668,169 +2186,305 @@ export const updateSellerPlan = async (req, res) => {
    VERIFY SELLER DOCUMENTS
 ========================================================= */
 
-export const verifySellerDocuments = async (req, res) => {
-  try {
-    if (!isAdmin(req)) {
-      return res.status(403).json({
-        success: false,
-        message: "Admin access only",
-      });
-    }
+export const verifySellerDocuments =
+  async (req, res) => {
+    try {
+      if (!isAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin access only",
+        });
+      }
 
-    const seller = await User.findById(req.params.id);
+      const seller =
+        await User.findById(
+          req.params.id
+        );
 
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        message: "Seller not found",
-      });
-    }
+      if (!seller) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Seller not found",
+        });
+      }
 
-if (seller.sellerStatus !== "pending") {
-  return res.status(400).json({
-    success: false,
-    message:
-      `Seller application is not pending. Current status: ${seller.sellerStatus}`,
-  });
-}
+      if (
+        seller.sellerStatus !==
+        "pending"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            `Seller application is not pending. Current status: ${seller.sellerStatus}`,
+        });
+      }
 
-    const documents = checkRequiredSellerDocuments(seller);
+      const documents =
+        checkRequiredSellerDocuments(
+          seller
+        );
 
-    if (!documents.complete) {
-      return res.status(400).json({
-        success: false,
-        message: "Required seller documents are incomplete",
-        documents,
-      });
-    }
+      if (!documents.complete) {
+        return res.status(400).json({
+          success: false,
 
-    /*
-        IMPORTANT:
-        Use "approved", never "verified".
+          message:
+            "Required seller documents are incomplete",
+
+          documents,
+        });
+      }
+
+      if (!seller.sellerInfo) {
+        seller.sellerInfo = {};
+      }
+
+      if (
+        !seller.sellerInfo.verification
+      ) {
+        seller.sellerInfo.verification =
+          {};
+      }
+
+      seller.sellerInfo.verification.status =
+        "approved";
+
+      seller.sellerInfo.verification.verifiedBy =
+        req.user?.id ||
+        req.user?._id;
+
+      seller.sellerInfo.verification.verifiedAt =
+        new Date();
+
+      /*
+         IMPORTANT:
+
+         Verification and approval are being
+         combined in your existing API.
+
+         Therefore also change role to seller.
       */
 
-    seller.sellerInfo.verification.status = "approved";
+      seller.role =
+        "seller";
 
-    seller.sellerInfo.verification.verifiedBy = req.user.id;
+      seller.sellerStatus =
+        "approved";
 
-    seller.sellerInfo.verification.verifiedAt = new Date();
+      seller.sellerApprovedAt =
+        new Date();
 
-    seller.sellerStatus = "approved";
+      seller.sellerRejectedAt =
+        null;
 
-    seller.sellerApprovedAt = new Date();
+      seller.sellerRejectedReason =
+        "";
 
-    seller.sellerRejectedAt = null;
+      if (
+        !seller.activeMode
+      ) {
+        seller.activeMode =
+          "customer";
+      }
 
-    seller.sellerRejectedReason = "";
+      if (
+        !seller.sellerInfo
+          .approvalHistory
+      ) {
+        seller.sellerInfo.approvalHistory =
+          [];
+      }
 
-    if (!seller.sellerInfo.approvalHistory) {
-      seller.sellerInfo.approvalHistory = [];
+      seller.sellerInfo.approvalHistory.push({
+        action:
+          "approved",
+
+        reason:
+          "Documents verified",
+
+        performedBy:
+          req.user?.id ||
+          req.user?._id,
+
+        date:
+          new Date(),
+      });
+
+      await seller.save();
+
+      return res.json({
+        success: true,
+
+        message:
+          "Seller documents verified and seller approved successfully",
+
+        seller: {
+          _id:
+            seller._id,
+
+          role:
+            seller.role,
+
+          sellerStatus:
+            seller.sellerStatus,
+
+          activeMode:
+            seller.activeMode,
+
+          documents,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Verify Seller Documents Error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to verify seller documents",
+      });
     }
-
-    seller.sellerInfo.approvalHistory.push({
-      action: "approved",
-
-      reason: "Documents Verified",
-
-      performedBy: req.user._id,
-
-      date: new Date(),
-    });
-
-    await seller.save();
-
-    return res.json({
-      success: true,
-      message: "Seller documents verified and seller approved successfully",
-    });
-  } catch (error) {
-    console.error("Verify Seller Documents Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to verify seller documents",
-    });
-  }
-};
+  };
 
 /* =========================================================
    REJECT SELLER
 ========================================================= */
+export const rejectSeller =
+  async (req, res) => {
+    try {
+      if (!isAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin access only",
+        });
+      }
 
-export const rejectSeller = async (req, res) => {
-  try {
-    if (!isAdmin(req)) {
-      return res.status(403).json({
+      const seller =
+        await User.findById(
+          req.params.id
+        );
+
+      if (!seller) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Seller not found",
+        });
+      }
+
+      /*
+         Pending applications can be rejected.
+
+         Also allow already-approved seller
+         rejection if you need that workflow.
+      */
+
+      if (
+        ![
+          "pending",
+          "approved",
+        ].includes(
+          seller.sellerStatus
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Seller cannot be rejected in the current status",
+        });
+      }
+
+      const reason =
+        String(
+          req.body.reason || ""
+        ).trim();
+
+      if (
+        !validateReason(
+          reason
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "A valid rejection reason is required",
+        });
+      }
+
+      seller.sellerStatus =
+        "rejected";
+
+      seller.sellerRejectedAt =
+        new Date();
+
+      seller.sellerRejectedReason =
+        reason;
+
+      seller.sellerApprovedAt =
+        null;
+
+      if (!seller.sellerInfo) {
+        seller.sellerInfo = {};
+      }
+
+      if (
+        !seller.sellerInfo.verification
+      ) {
+        seller.sellerInfo.verification =
+          {};
+      }
+
+      seller.sellerInfo.verification.status =
+        "rejected";
+
+      if (
+        !seller.sellerInfo
+          .approvalHistory
+      ) {
+        seller.sellerInfo.approvalHistory =
+          [];
+      }
+
+      seller.sellerInfo.approvalHistory.push({
+        action:
+          "rejected",
+
+        reason,
+
+        performedBy:
+          req.user?.id ||
+          req.user?._id,
+
+        date:
+          new Date(),
+      });
+
+      await seller.save();
+
+      return res.json({
+        success: true,
+
+        message:
+          "Seller rejected successfully",
+      });
+    } catch (error) {
+      console.error(
+        "Reject Seller Error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        message: "Admin access only",
+        message:
+          "Unable to reject seller",
       });
     }
-
-    const seller = await User.findById(req.params.id);
-
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        message: "Seller not found",
-      });
-    }
-
-    if (seller.role !== "seller") {
-      return res.status(400).json({
-        success: false,
-        message: "User is not a seller",
-      });
-    }
-
-    const reason = String(req.body.reason || "").trim();
-
-    if (!validateReason(reason)) {
-      return res.status(400).json({
-        success: false,
-        message: "A valid rejection reason is required",
-      });
-    }
-
-    seller.sellerStatus = "rejected";
-
-    seller.sellerRejectedAt = new Date();
-
-    seller.sellerRejectedReason = reason;
-
-    seller.sellerApprovedAt = null;
-
-    seller.sellerInfo.verification.status = "rejected";
-
-    if (!seller.sellerInfo.approvalHistory) {
-      seller.sellerInfo.approvalHistory = [];
-    }
-
-    seller.sellerInfo.approvalHistory.push({
-      action: "rejected",
-
-      reason,
-
-      performedBy: req.user.id,
-
-      date: new Date(),
-    });
-
-    await seller.save();
-
-    return res.json({
-      success: true,
-      message: "Seller rejected successfully",
-    });
-  } catch (error) {
-    console.error("Reject Seller Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to reject seller",
-    });
-  }
-};
-
+  };
 /* =========================================================
    GET SELLER ANALYTICS
 ========================================================= */
@@ -2003,52 +2657,98 @@ export const reactivateSeller = async (req, res) => {
     });
   }
 };
-export const switchMode = async (req, res) => {
-  try {
-    const { mode } = req.body;
+export const switchMode =
+  async (req, res) => {
+    try {
+      const {
+        mode,
+      } = req.body;
 
-    if (!["customer", "seller"].includes(mode)) {
-      return res.status(400).json({
+      if (
+        ![
+          "customer",
+          "seller",
+        ].includes(mode)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid mode",
+        });
+      }
+
+      const user =
+        await User.findById(
+          req.user?.id ||
+          req.user?._id
+        );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "User not found",
+        });
+      }
+
+      if (
+        user.isDeleted ||
+        user.isBlocked
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Account is not active",
+        });
+      }
+
+      /*
+         Seller mode requires:
+
+         role=seller
+         sellerStatus=approved
+      */
+
+      if (
+        mode === "seller" &&
+        (
+          user.role !==
+            "seller" ||
+          user.sellerStatus !==
+            "approved"
+        )
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Your seller account is not approved",
+        });
+      }
+
+      user.activeMode =
+        mode;
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          `Switched to ${mode} mode`,
+
+        mode:
+          user.activeMode,
+      });
+    } catch (error) {
+      console.error(
+        "Switch Mode Error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        message: "Invalid mode",
+        message:
+          error.message,
       });
     }
-
-    const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    // Seller mode requires approved seller account
-    if (
-      mode === "seller" &&
-      (user.role !== "seller" || user.sellerStatus !== "approved")
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Your seller account is not approved",
-      });
-    }
-
-    user.activeMode = mode;
-
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: `Switched to ${mode} mode`,
-      mode: user.activeMode,
-    });
-  } catch (error) {
-    console.error("Switch Mode Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
+  };

@@ -6,7 +6,8 @@ import {
   verifySigninOTP,
   resendOTP,
  signinWithPassword,
- sendLoginOTP,resendLoginOTP,getUsers,changePassword, forgotPassword, verifyResetPasswordOTP, resetPassword,getMe,updateProfile,  deleteMyAccount,
+ sendLoginOTP,resendLoginOTP,getUsers,changePassword, forgotPassword, verifyResetPasswordOTP, 
+ checkExistingAccount,resetPassword,getMe,updateProfile,  deleteMyAccount,
 } from "../controllers/authController.js";
 import {authMiddleware} from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
@@ -42,7 +43,10 @@ router.post(
   "/resend-otp",
   resendOTP
 );
-
+router.get(
+  "/check-account",
+  checkExistingAccount
+);
 router.post(
 
   "/resend-login-otp",
