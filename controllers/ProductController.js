@@ -24,7 +24,6 @@ import RecentlyViewed from "../models/RecentlyViewed.js";
 */
 
 const RECENT_COOKIE_NAME = "recentVisitorId";
-
 const getOrCreateVisitorId = (req, res) => {
   console.log("\n========================================");
   console.log("🍪 RECENTLY VIEWED COOKIE CHECK");
@@ -32,14 +31,9 @@ const getOrCreateVisitorId = (req, res) => {
 
   console.log("🍪 Request URL:", req.originalUrl);
   console.log("🍪 Request method:", req.method);
+  console.log("🍪 All cookies:", req.cookies);
 
-  console.log(
-    "🍪 All cookies:",
-    req.cookies
-  );
-
-  let visitorId =
-    req.cookies?.[RECENT_COOKIE_NAME];
+  let visitorId = req.cookies?.[RECENT_COOKIE_NAME];
 
   console.log(
     "🍪 Existing visitorId:",
@@ -54,20 +48,27 @@ const getOrCreateVisitorId = (req, res) => {
       visitorId
     );
 
+    const isProduction =
+      process.env.NODE_ENV === "production";
+
     res.cookie(
       RECENT_COOKIE_NAME,
       visitorId,
       {
         httpOnly: true,
 
-        // localhost = false
-        // production HTTPS = true
-        secure:
-          process.env.NODE_ENV ===
-          "production",
+        /*
+         * Production:
+         * Frontend = https://odikart.in
+         * Backend  = https://eshop-backend-y0e7.onrender.com
+         *
+         * These are cross-site requests.
+         */
+        secure: isProduction,
 
-        // Works for localhost frontend/backend
-        sameSite: "lax",
+        sameSite: isProduction
+          ? "none"
+          : "lax",
 
         maxAge:
           1000 *
@@ -83,6 +84,18 @@ const getOrCreateVisitorId = (req, res) => {
     console.log(
       "🍪 Cookie created successfully"
     );
+
+    console.log(
+      "🍪 Cookie settings:",
+      {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction
+          ? "none"
+          : "lax",
+        path: "/",
+      }
+    );
   }
 
   console.log(
@@ -90,7 +103,9 @@ const getOrCreateVisitorId = (req, res) => {
     visitorId
   );
 
-  console.log("========================================");
+  console.log(
+    "========================================"
+  );
 
   return visitorId;
 };
