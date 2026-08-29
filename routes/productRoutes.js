@@ -17,6 +17,33 @@ import {
   approveProduct,
   rejectProduct,
   blockProduct,
+
+  /* =====================================
+     ECOMMERCE DISCOVERY
+  ===================================== */
+
+  getTrendingProducts,
+  getBestSellerProducts,
+  getPopularProducts,
+  getTopRatedProducts,
+  getNewArrivalProducts,
+  getFeaturedProducts,
+  getRecommendedProducts,
+  getFlashSaleProducts,
+  getDealProducts,
+  getLowStockProducts,
+
+  /* =====================================
+     PRODUCT ANALYTICS
+  ===================================== */
+
+  trackProductEvent,
+  resetRecentProductAnalytics,
+   // Recently Viewed
+  addRecentlyViewed,
+  getRecentlyViewed,
+  removeRecentlyViewed,
+  clearRecentlyViewed,
 } from "../controllers/ProductController.js";
 
 import upload from "../middleware/uploadMiddleware.js";
@@ -26,19 +53,23 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/roleMiddleware.js";
 
 import sellerVerificationMiddleware from "../middleware/sellerVerificationMiddleware.js";
+
 const router = express.Router();
 
-/* =====================================
+/* =====================================================
    CREATE PRODUCT
    SELLER MUST BE VERIFIED
-===================================== */
+===================================================== */
 
 router.post(
   "/create",
 
   authMiddleware,
 
-  authorizeRoles("seller", "admin"),
+  authorizeRoles(
+    "seller",
+    "admin"
+  ),
 
   sellerVerificationMiddleware,
 
@@ -53,32 +84,217 @@ router.post(
     },
   ]),
 
-  createProduct,
+  createProduct
 );
 
-/* =====================================
+/* =====================================================
+   ECOMMERCE DISCOVERY
+   IMPORTANT:
+   These routes MUST come before /:id
+===================================================== */
+
+/* =====================================================
+   TRENDING
+===================================================== */
+
+router.get(
+  "/trending",
+  getTrendingProducts
+);
+
+/* =====================================================
+   BEST SELLERS
+===================================================== */
+
+router.get(
+  "/best-sellers",
+  getBestSellerProducts
+);
+
+/* =====================================================
+   POPULAR
+===================================================== */
+
+router.get(
+  "/popular",
+  getPopularProducts
+);
+
+/* =====================================================
+   TOP RATED
+===================================================== */
+
+router.get(
+  "/top-rated",
+  getTopRatedProducts
+);
+
+/* =====================================================
+   NEW ARRIVALS
+===================================================== */
+
+router.get(
+  "/new-arrivals",
+  getNewArrivalProducts
+);
+
+/* =====================================================
+   FEATURED
+===================================================== */
+
+router.get(
+  "/featured",
+  getFeaturedProducts
+);
+
+/* =====================================================
+   RECOMMENDED
+===================================================== */
+
+router.get(
+  "/recommended",
+  getRecommendedProducts
+);
+
+/* =====================================================
+   FLASH SALES
+===================================================== */
+
+router.get(
+  "/flash-sales",
+  getFlashSaleProducts
+);
+
+/* =====================================================
+   DEALS
+===================================================== */
+
+router.get(
+  "/deals",
+  getDealProducts
+);
+
+/* =====================================================
+   LOW STOCK
+===================================================== */
+
+router.get(
+  "/low-stock",
+  getLowStockProducts
+);
+
+/* =====================================================
+   PRODUCT ANALYTICS
+===================================================== */
+
+/*
+  Example:
+
+  POST /api/products/PRODUCT_ID/track-event
+
+  Body:
+
+  {
+    "event": "view"
+  }
+
+  Supported:
+
+  view
+  wishlist
+  cart
+  sale
+  order
+*/
+
+router.post(
+  "/:id/track-event",
+
+  trackProductEvent
+);
+/* =====================================================
+   RECENTLY VIEWED
+   COOKIE BASED
+   NO AUTHENTICATION REQUIRED
+===================================================== */
+
+/*
+  GET:
+  Returns recently viewed products for the
+  current browser using the recentVisitorId cookie.
+*/
+
+router.get(
+  "/recently-viewed",
+  getRecentlyViewed
+);
+
+/*
+  POST:
+  Saves a product as recently viewed.
+
+  No login required.
+  Backend creates/reads recentVisitorId cookie.
+*/
+
+router.post(
+  "/recently-viewed/:productId",
+  addRecentlyViewed
+);
+
+/*
+  DELETE ONE:
+  Removes one product from the current
+  browser's recently viewed list.
+*/
+
+router.delete(
+  "/recently-viewed/:productId",
+  removeRecentlyViewed
+);
+
+/*
+  DELETE ALL:
+  Clears the current browser's
+  recently viewed list.
+*/
+
+router.delete(
+  "/recently-viewed",
+  clearRecentlyViewed
+);
+
+/* GET SINGLE PRODUCT — keep this AFTER recently-viewed */
+router.get("/:id", getProduct);
+/* =====================================================
    GET ALL PRODUCTS
-===================================== */
+===================================================== */
 
-router.get("/", getProducts);
+router.get(
+  "/",
+  getProducts
+);
 
-/* =====================================
+/* =====================================================
    GET SELLER PRODUCTS
-===================================== */
+===================================================== */
 
 router.get(
   "/seller/my-products",
 
   authMiddleware,
 
-  authorizeRoles("seller", "admin"),
+  authorizeRoles(
+    "seller",
+    "admin"
+  ),
 
-  getSellerProducts,
+  getSellerProducts
 );
 
-/* =====================================
+/* =====================================================
    ADMIN - ALL PRODUCTS
-===================================== */
+===================================================== */
 
 router.get(
   "/admin/all",
@@ -87,12 +303,12 @@ router.get(
 
   authorizeRoles("admin"),
 
-  getAdminProducts,
+  getAdminProducts
 );
 
-/* =====================================
+/* =====================================================
    ADMIN - PENDING PRODUCTS
-===================================== */
+===================================================== */
 
 router.get(
   "/admin/pending",
@@ -101,12 +317,12 @@ router.get(
 
   authorizeRoles("admin"),
 
-  getPendingProducts,
+  getPendingProducts
 );
 
-/* =====================================
+/* =====================================================
    ADMIN - APPROVE PRODUCT
-===================================== */
+===================================================== */
 
 router.put(
   "/admin/:id/approve",
@@ -115,12 +331,12 @@ router.put(
 
   authorizeRoles("admin"),
 
-  approveProduct,
+  approveProduct
 );
 
-/* =====================================
+/* =====================================================
    ADMIN - REJECT PRODUCT
-===================================== */
+===================================================== */
 
 router.put(
   "/admin/:id/reject",
@@ -129,12 +345,12 @@ router.put(
 
   authorizeRoles("admin"),
 
-  rejectProduct,
+  rejectProduct
 );
 
-/* =====================================
+/* =====================================================
    ADMIN - BLOCK PRODUCT
-===================================== */
+===================================================== */
 
 router.put(
   "/admin/:id/block",
@@ -143,45 +359,79 @@ router.put(
 
   authorizeRoles("admin"),
 
-  blockProduct,
+  blockProduct
 );
 
-/* =====================================
+/* =====================================================
+   ADMIN - RESET RECENT ANALYTICS
+===================================================== */
+
+/*
+  This resets:
+
+  recentViews
+  recentWishlist
+  recentCart
+  recentSales
+  recentOrders
+
+  Lifetime analytics are NOT deleted.
+
+  Use this from a cron job or manually as admin.
+*/
+
+router.post(
+  "/admin/reset-recent-analytics",
+
+  authMiddleware,
+
+  authorizeRoles("admin"),
+
+  resetRecentProductAnalytics
+);
+
+/* =====================================================
    UPDATE VARIANT STOCK
-===================================== */
+===================================================== */
 
 router.put(
   "/stock",
 
   authMiddleware,
 
-  authorizeRoles("seller", "admin"),
+  authorizeRoles(
+    "seller",
+    "admin"
+  ),
 
   sellerVerificationMiddleware,
 
-  updateVariantStock,
+  updateVariantStock
 );
 
-/* =====================================
+/* =====================================================
    SUBMIT PRODUCT
    SELLER MUST BE VERIFIED
-===================================== */
+===================================================== */
 
 router.put(
   "/:id/submit",
 
   authMiddleware,
 
-  authorizeRoles("seller", "admin"),
+  authorizeRoles(
+    "seller",
+    "admin"
+  ),
 
   sellerVerificationMiddleware,
 
-  submitProduct,
+  submitProduct
 );
 
-/* =====================================
+/* =====================================================
    ADD REVIEW
-===================================== */
+===================================================== */
 
 router.post(
   "/:id/review",
@@ -199,73 +449,90 @@ router.post(
     },
   ]),
 
-  addReview,
+  addReview
 );
 
-/* =====================================
+/* =====================================================
    DELETE REVIEW
-===================================== */
+===================================================== */
 
 router.delete(
   "/:productId/review/:reviewId",
 
   authMiddleware,
 
-  deleteReview,
+  deleteReview
 );
 
-/* =====================================
+/* =====================================================
    LIKE REVIEW
-===================================== */
+===================================================== */
 
 router.put(
   "/:productId/review/:reviewId/like",
 
   authMiddleware,
 
-  toggleReviewLike,
+  toggleReviewLike
 );
 
-/* =====================================
+/* =====================================================
    GET SINGLE PRODUCT
-===================================== */
+
+   KEEP THIS NEAR THE BOTTOM.
+
+   Otherwise:
+
+   /trending
+
+   could be interpreted as:
+
+   /:id
+===================================================== */
 
 router.get(
   "/:id",
 
-  getProduct,
+  getProduct
 );
 
-/* =====================================
+/* =====================================================
    UPDATE PRODUCT
-===================================== */
+===================================================== */
 
 router.put(
   "/:id",
 
   authMiddleware,
 
-  authorizeRoles("seller", "admin"),
+  authorizeRoles(
+    "seller",
+    "admin"
+  ),
 
   sellerVerificationMiddleware,
 
-  updateProduct,
+  updateProduct
 );
 
-/* =====================================
+/* =====================================================
    DELETE PRODUCT
-===================================== */
+===================================================== */
 
 router.delete(
   "/:id",
 
   authMiddleware,
 
-  authorizeRoles("seller", "admin"),
+  authorizeRoles(
+    "seller",
+    "admin"
+  ),
 
   sellerVerificationMiddleware,
 
-  deleteProduct,
+  deleteProduct
 );
 
 export default router;
+

@@ -1,8 +1,13 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 
 import connectDB from "./config/db.js";
+
+/* =====================================
+   ROUTES
+===================================== */
 
 import userRoutes from "./routes/userRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
@@ -18,106 +23,396 @@ import courierRoutes from "./routes/courierRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
 import withdrawalRoutes from "./routes/withdrawalRoutes.js";
 import sellerSettingsRoutes from "./routes/sellerSettingsRoutes.js";
+import razorpayWebhookRoutes
+  from "./routes/razorpayWebhookRoutes.js";
+
 
 dotenv.config();
 
-const app = express();
 
-/* =====================================
+const app =
+  express();
+
+
+/* =====================================================
    DATABASE
-===================================== */
+===================================================== */
 
 connectDB();
 
-/* =====================================
-   MIDDLEWARE
-===================================== */
 
-app.use(cors());
+/* =====================================================
+   CORS
+===================================================== */
 
-app.use(express.json());
+app.use(
+  cors({
 
-/* =====================================
+    origin:
+      "http://localhost:5173",
+
+    credentials:
+      true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "PATCH",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Accept",
+    ],
+
+  })
+);
+
+
+/* =====================================================
+   COOKIE
+===================================================== */
+
+app.use(
+  cookieParser()
+);
+
+
+/* =====================================================
+   RAZORPAY WEBHOOK
+     
+   IMPORTANT:
+   This MUST be registered BEFORE express.json()
+
+   Razorpay needs the raw request body for:
+   X-Razorpay-Signature verification.
+===================================================== */
+
+app.use(
+  "/api/payment/webhook",
+  razorpayWebhookRoutes
+);
+
+
+/* =====================================================
+   NORMAL BODY PARSERS
+
+   These come AFTER the webhook route.
+===================================================== */
+
+app.use(
+  express.json({
+    limit: "10mb",
+  })
+);
+
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  })
+);
+
+
+/* =====================================================
    HEALTH ROUTE
-===================================== */
+===================================================== */
 
-app.get("/", (req, res) => {
+app.get(
+  "/",
+  (req, res) => {
 
-  res.json({
+    res.status(200).json({
 
-    status:
-      "Backend running ✅"
+      success: true,
 
-  });
+      status:
+        "Backend running ✅",
 
-});
+    });
 
-/* =====================================
-   ROUTES
-===================================== */
+  }
+);
+
+
+/* =====================================================
+   USER ROUTES
+===================================================== */
 
 app.use(
   "/api",
   userRoutes
 );
 
+
+/* =====================================================
+   PAYMENT ROUTES
+===================================================== */
+
 app.use(
   "/api",
   paymentRoutes
 );
+
+
+/* =====================================================
+   ORDER ROUTES
+===================================================== */
 
 app.use(
   "/api",
   orderRoutes
 );
 
+
+/* =====================================================
+   CART
+===================================================== */
+
 app.use(
   "/api/cart",
   cartRoutes
 );
+
+
+/* =====================================================
+   CATEGORY
+===================================================== */
 
 app.use(
   "/api",
   categoryRoutes
 );
 
+
+/* =====================================================
+   BRAND
+===================================================== */
+
 app.use(
   "/api",
   brandRoutes
 );
 
-app.use("/api", courierRoutes);
+
+/* =====================================================
+   COURIER
+===================================================== */
+
+app.use(
+  "/api",
+  courierRoutes
+);
+
+
+/* =====================================================
+   WISHLIST
+===================================================== */
 
 app.use(
   "/api",
   wishlistRoutes
 );
-app.use("/api/auth", authRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/coupons", couponRoutes);
+
+
+/* =====================================================
+   AUTH
+===================================================== */
+
+app.use(
+  "/api/auth",
+  authRoutes
+);
+
+
+/* =====================================================
+   PRODUCTS
+===================================================== */
+
+app.use(
+  "/api/products",
+  productRoutes
+);
+
+
+/* =====================================================
+   COUPONS
+===================================================== */
+
+app.use(
+  "/api/coupons",
+  couponRoutes
+);
+
+
+/* =====================================================
+   WALLET
+===================================================== */
+
 app.use(
   "/api/wallet",
   walletRoutes
 );
+
+
+/* =====================================================
+   WITHDRAWAL
+===================================================== */
+
 app.use(
   "/api/wallet/withdraw",
   withdrawalRoutes
 );
+
+
+/* =====================================================
+   SELLER SETTINGS
+===================================================== */
+
 app.use(
   "/api/seller/settings",
   sellerSettingsRoutes
 );
-/* =====================================
+
+
+/* =====================================================
+   404 HANDLER
+===================================================== */
+
+app.use(
+  (req, res) => {
+
+    console.warn(
+      "❌ ROUTE NOT FOUND:",
+      req.method,
+      req.originalUrl
+    );
+
+
+    res.status(404).json({
+
+      success: false,
+
+      message:
+        "API route not found",
+
+      path:
+        req.originalUrl,
+
+    });
+
+  }
+);
+
+
+/* =====================================================
+   GLOBAL ERROR HANDLER
+===================================================== */
+
+app.use(
+  (
+    error,
+    req,
+    res,
+    next
+  ) => {
+
+    console.error(
+      "======================================"
+    );
+
+    console.error(
+      "❌ GLOBAL EXPRESS ERROR"
+    );
+
+    console.error(
+      "Method:",
+      req.method
+    );
+
+    console.error(
+      "URL:",
+      req.originalUrl
+    );
+
+    console.error(
+      "Error:",
+      error
+    );
+
+    console.error(
+      "======================================"
+    );
+
+
+    if (
+      res.headersSent
+    ) {
+
+      return next(
+        error
+      );
+
+    }
+
+
+    return res.status(
+      error.status || 500
+    ).json({
+
+      success: false,
+
+      message:
+        error.message ||
+        "Internal server error",
+
+    });
+
+  }
+);
+
+
+/* =====================================================
    SERVER
-===================================== */
+===================================================== */
 
 const PORT =
-  process.env.PORT || 5000;
+  process.env.PORT ||
+  5000;
 
-app.listen(PORT, () =>
 
-  console.log(
-    `Server running on port ${PORT}`
-  )
+app.listen(
+  PORT,
+  () => {
 
-);      
+    console.log(
+      "======================================"
+    );
+
+    console.log(
+      "🚀 ODikart backend started"
+    );
+
+    console.log(
+      `Server running on port ${PORT}`
+    );
+
+    console.log(
+      "Razorpay webhook endpoint:"
+    );
+
+    console.log(
+      `/api/payment/webhook`
+    );
+
+    console.log(
+      "======================================"
+    );
+
+  }
+);

@@ -132,7 +132,7 @@ const userSchema = new mongoose.Schema(
     },
 activeMode: {
   type: String,
-  enum: ["customer", "seller"],
+  enum: ["customer", "seller", "admin"],
   default: "customer",
 },
     sellerStatus: {

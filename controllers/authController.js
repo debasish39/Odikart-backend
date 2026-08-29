@@ -273,6 +273,10 @@ const safeUserResponse = (user) => {
    SAFE AUTH RESPONSE
 ========================================================= */
 
+/* =========================================================
+   SAFE AUTH RESPONSE
+========================================================= */
+
 const safeAuthResponse = (user) => {
 
   if (!user) {
@@ -301,42 +305,37 @@ const safeAuthResponse = (user) => {
       user.image || "",
 
 
-    /* -----------------------------------------------------
+    /* ===================================================
        ROLE
-    ----------------------------------------------------- */
+    =================================================== */
 
     role:
       user.role || "user",
 
 
-    /* -----------------------------------------------------
+    /* ===================================================
        SELLER STATUS
-    ----------------------------------------------------- */
+    =================================================== */
 
     sellerStatus:
-      user.sellerStatus ?? null,
-
-
-    /* -----------------------------------------------------
-       SELLER KYC STATUS
-    ----------------------------------------------------- */
-
-    /* =====================================
-       SELLER KYC STATUS
-       
-       IMPORTANT:
-       Read directly from MongoDB
-       ================================== */
-
-    sellerVerificationStatus:
-      user.sellerInfo?.verification?.status ||
+      user.sellerStatus ??
       null,
 
 
+    /* ===================================================
+       SELLER KYC STATUS
+    =================================================== */
 
-    /* -----------------------------------------------------
+    sellerVerificationStatus:
+      user.sellerInfo
+        ?.verification
+        ?.status ||
+      null,
+
+
+    /* ===================================================
        ACCOUNT VERIFICATION
-    ----------------------------------------------------- */
+    =================================================== */
 
     isVerified:
       Boolean(user.isVerified),
@@ -348,9 +347,9 @@ const safeAuthResponse = (user) => {
       Boolean(user.isPhoneVerified),
 
 
-    /* -----------------------------------------------------
+    /* ===================================================
        ACCOUNT STATUS
-    ----------------------------------------------------- */
+    =================================================== */
 
     isBlocked:
       Boolean(user.isBlocked),
@@ -359,12 +358,15 @@ const safeAuthResponse = (user) => {
       Boolean(user.isDeleted),
 
 
-    /* -----------------------------------------------------
-       ACTIVE MODE
-    ----------------------------------------------------- */
+    /* ===================================================
+       UI MODE
+       
+       Not an authorization source.
+    =================================================== */
 
     activeMode:
-      user.activeMode || "customer",
+      user.activeMode ||
+      "customer",
 
   };
 };
@@ -962,14 +964,18 @@ export const verifySignupOTP =
    LOGIN WITH PASSWORD
 ========================================================= */
 
+/* =========================================================
+   LOGIN WITH PASSWORD
+========================================================= */
+
 export const signinWithPassword =
   async (req, res) => {
 
     try {
 
-      /* ---------------------------------------------------
+      /* ===================================================
          READ INPUT
-      --------------------------------------------------- */
+      =================================================== */
 
       const email =
         normalizeEmail(
@@ -990,9 +996,9 @@ export const signinWithPassword =
           .toLowerCase();
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          VALIDATION
-      --------------------------------------------------- */
+      =================================================== */
 
       if (
         !isValidEmail(email) ||
@@ -1013,7 +1019,9 @@ export const signinWithPassword =
 
 
       if (
-        !["customer", "seller"].includes(app)
+        !["customer", "seller"].includes(
+          app
+        )
       ) {
 
         return res.status(400).json({
@@ -1028,9 +1036,9 @@ export const signinWithPassword =
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          FIND USER
-      --------------------------------------------------- */
+      =================================================== */
 
       const user =
         await User.findOne({
@@ -1052,9 +1060,9 @@ export const signinWithPassword =
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          ACCOUNT STATUS
-      --------------------------------------------------- */
+      =================================================== */
 
       if (
         user.isDeleted ||
@@ -1073,11 +1081,13 @@ export const signinWithPassword =
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          ACCOUNT VERIFICATION
-      --------------------------------------------------- */
+      =================================================== */
 
-      if (!user.isVerified) {
+      if (
+        !user.isVerified
+      ) {
 
         return res.status(403).json({
 
@@ -1091,9 +1101,9 @@ export const signinWithPassword =
       }
 
 
-      /* ---------------------------------------------------
-         PASSWORD CHECK
-      --------------------------------------------------- */
+      /* ===================================================
+         PASSWORD
+      =================================================== */
 
       if (!user.password) {
 
@@ -1134,13 +1144,15 @@ export const signinWithPassword =
          SELLER APPLICATION
       =================================================== */
 
-      if (app === "seller") {
+      if (
+        app === "seller"
+      ) {
 
         const kycStatus =
           user.sellerInfo
             ?.verification
             ?.status ||
-          null;
+          "pending";
 
 
         console.log(
@@ -1176,12 +1188,13 @@ export const signinWithPassword =
         );
 
 
-        /* -------------------------------------------------
-           ROLE CHECK
-        ------------------------------------------------- */
+        /* -----------------------------------------------
+           ROLE
+        ----------------------------------------------- */
 
         if (
-          user.role !== "seller"
+          user.role !==
+          "seller"
         ) {
 
           return res.status(403).json({
@@ -1192,7 +1205,8 @@ export const signinWithPassword =
               "This login is only available for seller accounts.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -1202,9 +1216,11 @@ export const signinWithPassword =
         }
 
 
-        /* -------------------------------------------------
-           SELLER APPROVAL
-        ------------------------------------------------- */
+        /* -----------------------------------------------
+           SELLER APPLICATION APPROVAL
+           
+           This blocks login.
+        ----------------------------------------------- */
 
         if (
           user.sellerStatus !==
@@ -1219,7 +1235,8 @@ export const signinWithPassword =
               "Your seller account is not approved.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -1229,99 +1246,96 @@ export const signinWithPassword =
         }
 
 
-        /* -------------------------------------------------
-           KYC APPROVAL
-        ------------------------------------------------- */
+        /* -----------------------------------------------
+           KYC
+           
+           IMPORTANT:
+           KYC does NOT block authentication.
+        ----------------------------------------------- */
 
         if (
-          kycStatus !==
+          kycStatus ===
           "approved"
         ) {
 
-          return res.status(403).json({
+          console.log(
+            "✅ Seller account approved"
+          );
 
-            success: false,
+          console.log(
+            "✅ KYC approved"
+          );
 
-            message:
-              "Your seller account is approved, but KYC verification is not approved.",
+        } else {
 
-            sellerStatus:
-              user.sellerStatus || null,
+          console.log(
+            "⚠️ Seller approved but KYC incomplete"
+          );
 
-            sellerVerificationStatus:
-              kycStatus,
+          console.log(
+            "✅ Authentication allowed"
+          );
 
-          });
+          console.log(
+            "➡️ Frontend should open upload documents"
+          );
 
         }
-
-
-        /* -------------------------------------------------
-           SELLER MODE
-        ------------------------------------------------- */
-
-        user.activeMode =
-          "seller";
-
-
-        console.log(
-          "✅ Seller account approved"
-        );
-
-        console.log(
-          "✅ KYC approved"
-        );
-
-        console.log(
-          "✅ Active mode: seller"
-        );
-
-
-      } else {
-
-        /* =================================================
-           CUSTOMER APP
-        ================================================= */
-
-        user.activeMode =
-          "customer";
-
-
-        console.log(
-          "🛍️ Customer login"
-        );
 
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
+         CUSTOMER APPLICATION
+      =================================================== */
+
+   if (app === "customer") {
+
+  console.log("🛍️ Customer login");
+
+  if (user.role !== "user") {
+
+    return res.status(403).json({
+      success: false,
+      message:
+        "This account cannot access the customer application.",
+      role: user.role,
+    });
+
+  }
+
+}
+
+
+      /* ===================================================
          LAST LOGIN
-      --------------------------------------------------- */
+      =================================================== */
 
       user.lastLogin =
         new Date();
 
 
-      /* ---------------------------------------------------
-         SAVE
-      --------------------------------------------------- */
+      /*
+       * No activeMode modification here.
+       */
 
       await user.save();
 
 
-      /* ---------------------------------------------------
-         CREATE TOKEN
-      --------------------------------------------------- */
+      /* ===================================================
+         TOKEN
+      =================================================== */
 
       const token =
         generateToken(
-          user
+          user,
+          app
         );
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          RESPONSE USER
-      --------------------------------------------------- */
+      =================================================== */
 
       const responseUser =
         safeAuthResponse(
@@ -1329,9 +1343,9 @@ export const signinWithPassword =
         );
 
 
-      /* ---------------------------------------------------
-         DEBUG RESPONSE
-      --------------------------------------------------- */
+      /* ===================================================
+         DEBUG
+      =================================================== */
 
       console.log(
         "========== PASSWORD LOGIN RESPONSE =========="
@@ -1353,8 +1367,8 @@ export const signinWithPassword =
       );
 
       console.log(
-        "Active Mode:",
-        responseUser.activeMode
+        "Application:",
+        app
       );
 
       console.log(
@@ -1362,9 +1376,9 @@ export const signinWithPassword =
       );
 
 
-      /* ---------------------------------------------------
-         FINAL RESPONSE
-      --------------------------------------------------- */
+      /* ===================================================
+         RESPONSE
+      =================================================== */
 
       return res.status(200).json({
 
@@ -1377,6 +1391,8 @@ export const signinWithPassword =
 
         user:
           responseUser,
+
+        app,
 
       });
 
@@ -1475,6 +1491,10 @@ export const checkExistingAccount = async (req, res) => {
    SEND LOGIN OTP
 ========================================================= */
 
+/* =========================================================
+   SEND LOGIN OTP
+========================================================= */
+
 export const sendLoginOTP =
   async (req, res) => {
 
@@ -1495,9 +1515,9 @@ export const sendLoginOTP =
           .toLowerCase();
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          VALIDATION
-      --------------------------------------------------- */
+      =================================================== */
 
       if (
         !isValidEmail(email)
@@ -1516,7 +1536,9 @@ export const sendLoginOTP =
 
 
       if (
-        !["customer", "seller"].includes(app)
+        !["customer", "seller"].includes(
+          app
+        )
       ) {
 
         return res.status(400).json({
@@ -1531,9 +1553,9 @@ export const sendLoginOTP =
       }
 
 
-      /* ---------------------------------------------------
-         OTP RATE LIMIT
-      --------------------------------------------------- */
+      /* ===================================================
+         RATE LIMIT
+      =================================================== */
 
       if (
         !canAttemptOtp(
@@ -1554,9 +1576,9 @@ export const sendLoginOTP =
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          FIND USER
-      --------------------------------------------------- */
+      =================================================== */
 
       const user =
         await User.findOne({
@@ -1584,16 +1606,18 @@ export const sendLoginOTP =
 
 
       /* ===================================================
-         SELLER APP CHECK
+         SELLER APP
       =================================================== */
 
-      if (app === "seller") {
+      if (
+        app === "seller"
+      ) {
 
         const kycStatus =
           user.sellerInfo
             ?.verification
             ?.status ||
-          null;
+          "pending";
 
 
         console.log(
@@ -1602,6 +1626,11 @@ export const sendLoginOTP =
 
         console.log(
           "📩 SELLER OTP REQUEST"
+        );
+
+        console.log(
+          "Email:",
+          user.email
         );
 
         console.log(
@@ -1624,8 +1653,13 @@ export const sendLoginOTP =
         );
 
 
+        /* -----------------------------------------------
+           ROLE
+        ----------------------------------------------- */
+
         if (
-          user.role !== "seller"
+          user.role !==
+          "seller"
         ) {
 
           return res.status(403).json({
@@ -1636,7 +1670,8 @@ export const sendLoginOTP =
               "This login is only available for seller accounts.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -1645,6 +1680,10 @@ export const sendLoginOTP =
 
         }
 
+
+        /* -----------------------------------------------
+           SELLER APPROVAL
+        ----------------------------------------------- */
 
         if (
           user.sellerStatus !==
@@ -1659,7 +1698,8 @@ export const sendLoginOTP =
               "Your seller account is not approved.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -1669,34 +1709,37 @@ export const sendLoginOTP =
         }
 
 
+        /* -----------------------------------------------
+           KYC DOES NOT BLOCK OTP
+        ----------------------------------------------- */
+
         if (
-          kycStatus !==
+          kycStatus ===
           "approved"
         ) {
 
-          return res.status(403).json({
+          console.log(
+            "✅ Seller KYC approved"
+          );
 
-            success: false,
+        } else {
 
-            message:
-              "Your seller account is approved, but KYC verification is not approved.",
+          console.log(
+            "⚠️ Seller KYC incomplete"
+          );
 
-            sellerStatus:
-              user.sellerStatus || null,
-
-            sellerVerificationStatus:
-              kycStatus,
-
-          });
+          console.log(
+            "✅ OTP still allowed"
+          );
 
         }
 
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          GENERATE OTP
-      --------------------------------------------------- */
+      =================================================== */
 
       const otp =
         generateSecureOtp();
@@ -1720,9 +1763,12 @@ export const sendLoginOTP =
       }
 
 
+      /* ===================================================
+         SAVE OTP
+      =================================================== */
+
       user.otp =
         otp;
-
 
       user.otpExpiry =
         new Date(
@@ -1733,6 +1779,10 @@ export const sendLoginOTP =
 
       await user.save();
 
+
+      /* ===================================================
+         SEND EMAIL
+      =================================================== */
 
       await sendEmailOTP(
         email,
@@ -1767,6 +1817,7 @@ export const sendLoginOTP =
     }
 
   };
+
 /* =========================================================
    VERIFY LOGIN OTP
 ========================================================= */
@@ -1820,9 +1871,9 @@ export const verifySigninOTP =
       );
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          VALIDATION
-      --------------------------------------------------- */
+      =================================================== */
 
       if (
         !isValidEmail(email) ||
@@ -1842,7 +1893,9 @@ export const verifySigninOTP =
 
 
       if (
-        !["customer", "seller"].includes(app)
+        !["customer", "seller"].includes(
+          app
+        )
       ) {
 
         return res.status(400).json({
@@ -1857,9 +1910,9 @@ export const verifySigninOTP =
       }
 
 
-      /* ---------------------------------------------------
-         OTP ATTEMPTS
-      --------------------------------------------------- */
+      /* ===================================================
+         RATE LIMIT
+      =================================================== */
 
       if (
         !canAttemptOtp(
@@ -1880,9 +1933,9 @@ export const verifySigninOTP =
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          FIND USER
-      --------------------------------------------------- */
+      =================================================== */
 
       const user =
         await User.findOne({
@@ -1915,9 +1968,9 @@ export const verifySigninOTP =
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          OTP EXPIRY
-      --------------------------------------------------- */
+      =================================================== */
 
       if (
         !user.otp ||
@@ -1944,9 +1997,9 @@ export const verifySigninOTP =
       }
 
 
-      /* ---------------------------------------------------
-         VERIFY OTP
-      --------------------------------------------------- */
+      /* ===================================================
+         OTP CHECK
+      =================================================== */
 
       const storedOtp =
         normalizeOtp(
@@ -1977,7 +2030,7 @@ export const verifySigninOTP =
 
 
       /* ===================================================
-         SELLER APP
+         SELLER APPLICATION
       =================================================== */
 
       if (
@@ -1988,7 +2041,7 @@ export const verifySigninOTP =
           user.sellerInfo
             ?.verification
             ?.status ||
-          null;
+          "pending";
 
 
         console.log(
@@ -2019,12 +2072,13 @@ export const verifySigninOTP =
         );
 
 
-        /* -------------------------------------------------
+        /* -----------------------------------------------
            ROLE
-        ------------------------------------------------- */
+        ----------------------------------------------- */
 
         if (
-          user.role !== "seller"
+          user.role !==
+          "seller"
         ) {
 
           return res.status(403).json({
@@ -2035,7 +2089,8 @@ export const verifySigninOTP =
               "This login is only available for seller accounts.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -2045,9 +2100,9 @@ export const verifySigninOTP =
         }
 
 
-        /* -------------------------------------------------
+        /* -----------------------------------------------
            SELLER APPROVAL
-        ------------------------------------------------- */
+        ----------------------------------------------- */
 
         if (
           user.sellerStatus !==
@@ -2062,7 +2117,8 @@ export const verifySigninOTP =
               "Your seller account is not approved.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -2072,78 +2128,58 @@ export const verifySigninOTP =
         }
 
 
-        /* -------------------------------------------------
-           KYC APPROVAL
-        ------------------------------------------------- */
+        /* -----------------------------------------------
+           KYC
+           
+           DO NOT BLOCK AUTHENTICATION
+        ----------------------------------------------- */
 
         if (
-          kycStatus !==
+          kycStatus ===
           "approved"
         ) {
 
-          return res.status(403).json({
+          console.log(
+            "✅ Seller access approved"
+          );
 
-            success: false,
+          console.log(
+            "✅ KYC verified"
+          );
 
-            message:
-              "Your seller account is approved, but KYC verification is not approved.",
+        } else {
 
-            sellerStatus:
-              user.sellerStatus || null,
+          console.log(
+            "⚠️ Seller approved but KYC incomplete"
+          );
 
-            sellerVerificationStatus:
-              kycStatus,
-
-          });
+          console.log(
+            "✅ OTP authentication allowed"
+          );
 
         }
-
-
-        /* -------------------------------------------------
-           SELLER MODE
-        ------------------------------------------------- */
-
-        user.activeMode =
-          "seller";
-
-
-        console.log(
-          "✅ Seller access approved"
-        );
-
-        console.log(
-          "✅ KYC verified"
-        );
-
-        console.log(
-          "✅ Active mode = seller"
-        );
 
       }
 
 
       /* ===================================================
-         CUSTOMER APP
+         CUSTOMER
       =================================================== */
 
       if (
         app === "customer"
       ) {
 
-        user.activeMode =
-          "customer";
-
-
         console.log(
-          "🛍️ Active mode = customer"
+          "🛍️ Customer OTP login"
         );
 
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
          CLEAR OTP
-      --------------------------------------------------- */
+      =================================================== */
 
       user.otp =
         null;
@@ -2155,9 +2191,10 @@ export const verifySigninOTP =
         new Date();
 
 
-      /* ---------------------------------------------------
-         SAVE
-      --------------------------------------------------- */
+      /*
+       * DO NOT MODIFY user.activeMode
+       * DO NOT MODIFY KYC
+       */
 
       await user.save();
 
@@ -2167,29 +2204,26 @@ export const verifySigninOTP =
       );
 
 
-      /* ---------------------------------------------------
-         CLEAR ATTEMPTS
-      --------------------------------------------------- */
-
       clearOtpAttempts(
         "login-verify",
         email
       );
 
 
-      /* ---------------------------------------------------
-         GENERATE TOKEN
-      --------------------------------------------------- */
+      /* ===================================================
+         TOKEN
+      =================================================== */
 
       const token =
         generateToken(
-          user
+          user,
+          app
         );
 
 
-      /* ---------------------------------------------------
-         RESPONSE
-      --------------------------------------------------- */
+      /* ===================================================
+         USER RESPONSE
+      =================================================== */
 
       const responseUser =
         safeAuthResponse(
@@ -2217,8 +2251,8 @@ export const verifySigninOTP =
       );
 
       console.log(
-        "Active Mode:",
-        responseUser.activeMode
+        "Application:",
+        app
       );
 
       console.log(
@@ -2238,6 +2272,8 @@ export const verifySigninOTP =
         user:
           responseUser,
 
+        app,
+
       });
 
 
@@ -2255,6 +2291,10 @@ export const verifySigninOTP =
 
 /* =========================================================
    SWITCH ACTIVE MODE
+========================================================= */
+
+/* =========================================================
+   SWITCH APPLICATION
 ========================================================= */
 
 export const switchActiveMode =
@@ -2299,10 +2339,10 @@ export const switchActiveMode =
       }
 
 
-      const mode =
+      const app =
         String(
-          req.body?.activeMode ||
           req.body?.app ||
+          req.body?.activeMode ||
           ""
         )
           .trim()
@@ -2311,7 +2351,7 @@ export const switchActiveMode =
 
       if (
         !["customer", "seller"].includes(
-          mode
+          app
         )
       ) {
 
@@ -2320,7 +2360,7 @@ export const switchActiveMode =
           success: false,
 
           message:
-            "activeMode must be customer or seller",
+            "Application must be customer or seller",
 
         });
 
@@ -2328,22 +2368,22 @@ export const switchActiveMode =
 
 
       /* ===================================================
-         SELLER MODE
+         SELLER APPLICATION
       =================================================== */
 
       if (
-        mode === "seller"
+        app === "seller"
       ) {
 
         const kycStatus =
           user.sellerInfo
             ?.verification
             ?.status ||
-          null;
+          "pending";
 
 
         console.log(
-          "========== SWITCH SELLER MODE =========="
+          "========== SWITCH TO SELLER =========="
         );
 
         console.log(
@@ -2362,12 +2402,13 @@ export const switchActiveMode =
         );
 
         console.log(
-          "========================================"
+          "======================================"
         );
 
 
         if (
-          user.role !== "seller"
+          user.role !==
+          "seller"
         ) {
 
           return res.status(403).json({
@@ -2378,7 +2419,8 @@ export const switchActiveMode =
               "This account is not registered as a seller.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -2401,7 +2443,8 @@ export const switchActiveMode =
               "Your seller account is not approved.",
 
             sellerStatus:
-              user.sellerStatus || null,
+              user.sellerStatus ||
+              null,
 
             sellerVerificationStatus:
               kycStatus,
@@ -2412,24 +2455,23 @@ export const switchActiveMode =
 
 
         if (
-          kycStatus !==
+          kycStatus ===
           "approved"
         ) {
 
-          return res.status(403).json({
+          console.log(
+            "✅ Switching to verified seller session"
+          );
 
-            success: false,
+        } else {
 
-            message:
-              "Your seller account is approved, but KYC verification is not approved.",
+          console.log(
+            "⚠️ Switching to seller onboarding session"
+          );
 
-            sellerStatus:
-              user.sellerStatus || null,
-
-            sellerVerificationStatus:
-              kycStatus,
-
-          });
+          console.log(
+            "➡️ Seller can upload KYC documents"
+          );
 
         }
 
@@ -2437,29 +2479,38 @@ export const switchActiveMode =
 
 
       /* ===================================================
-         CHANGE MODE
+         CUSTOMER APPLICATION
       =================================================== */
 
-      user.activeMode =
-        mode;
+      if (
+        app === "customer"
+      ) {
+
+        console.log(
+          "🛍️ Switching to customer session"
+        );
+
+      }
 
 
-      await user.save();
+      /*
+       * IMPORTANT:
+       *
+       * Never do:
+       *
+       * user.activeMode = app;
+       * await user.save();
+       *
+       * Application mode belongs in the JWT.
+       */
 
-
-      /* ---------------------------------------------------
-         NEW TOKEN
-      --------------------------------------------------- */
 
       const token =
         generateToken(
-          user
+          user,
+          app
         );
 
-
-      /* ---------------------------------------------------
-         RESPONSE USER
-      --------------------------------------------------- */
 
       const responseUser =
         safeAuthResponse(
@@ -2467,18 +2518,14 @@ export const switchActiveMode =
         );
 
 
-      console.log(
-        "✅ ACTIVE MODE CHANGED:",
-        mode
-      );
-
-
       return res.status(200).json({
 
         success: true,
 
         message:
-          `Active mode changed to ${mode}`,
+          `Switched to ${app} application`,
+
+        app,
 
         token,
 
@@ -2493,7 +2540,7 @@ export const switchActiveMode =
       return unexpectedError(
         res,
         error,
-        "Switch Active Mode Error"
+        "Switch Application Error"
       );
 
     }
@@ -3639,3 +3686,180 @@ export const deleteUser =
       );
     }
   };
+export const adminLogin = async (req, res) => {
+
+  try {
+
+    const {
+      email,
+      password,
+    } = req.body;
+
+    /* =====================================
+       VALIDATION
+    ===================================== */
+
+    if (
+      !email ||
+      !password
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Email and password are required",
+      });
+
+    }
+
+    /* =====================================
+       FIND USER
+    ===================================== */
+
+    const user =
+      await User.findOne({
+        email:
+          email.trim().toLowerCase(),
+      });
+
+    if (!user) {
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid email or password",
+      });
+
+    }
+
+    /* =====================================
+       ACCOUNT STATUS
+    ===================================== */
+
+    if (
+      user.isDeleted ||
+      user.isBlocked
+    ) {
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account is not available",
+      });
+
+    }
+
+    /* =====================================
+       ADMIN ROLE
+    ===================================== */
+
+    if (
+      user.role !== "admin"
+    ) {
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "Admin access denied",
+      });
+
+    }
+
+    /* =====================================
+       PASSWORD
+    ===================================== */
+
+    if (!user.password) {
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid email or password",
+      });
+
+    }
+
+    const isMatch =
+      await bcrypt.compare(
+        password,
+        user.password
+      );
+
+    if (!isMatch) {
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid email or password",
+      });
+
+    }
+
+    /* =====================================
+       LAST LOGIN
+    ===================================== */
+
+    user.lastLogin =
+      new Date();
+
+    await user.save();
+
+    /* =====================================
+       TOKEN
+    ===================================== */
+
+    const token =
+      generateToken(
+        user,
+        "admin"
+      );
+
+    /* =====================================
+       SAFE USER RESPONSE
+    ===================================== */
+
+    const responseUser =
+      safeAuthResponse(
+        user
+      );
+
+    /* =====================================
+       RESPONSE
+    ===================================== */
+
+    return res.status(200).json({
+
+      success: true,
+
+      message:
+        "Admin login successful",
+
+      token,
+
+      user:
+        responseUser,
+
+      app:
+        "admin",
+
+    });
+
+  } catch (error) {
+
+    console.error(
+      "Admin Login Error:",
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        "Admin login failed",
+
+    });
+
+  }
+
+};

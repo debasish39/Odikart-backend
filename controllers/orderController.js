@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 import Order from "../models/Order.js";
 import razorpay from "../utils/razorpay.js";
 import { sendEmail } from "../utils/sendEmail.js";
@@ -29,6 +30,107 @@ export const saveOrder = async (req, res) => {
     /* =====================================
        CREATE ORDER
     ===================================== */
+    /* =====================================
+       BASIC REQUEST VALIDATION
+    ===================================== */
+
+    if (!req.user?._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (!Array.isArray(req.body.items) || req.body.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Order must contain at least one item",
+      });
+    }
+
+    const deliveryAddress = req.body.deliveryAddress?.address;
+
+    if (!deliveryAddress) {
+      return res.status(400).json({
+        success: false,
+        message: "Delivery address is required",
+      });
+    }
+
+    const requiredAddressFields = {
+      addressLine1: deliveryAddress.addressLine1,
+      area: deliveryAddress.area,
+      city: deliveryAddress.city,
+      district: deliveryAddress.district,
+      state: deliveryAddress.state,
+      postalCode: deliveryAddress.postalCode,
+      country: deliveryAddress.country,
+    };
+
+    for (const [field, value] of Object.entries(requiredAddressFields)) {
+      if (!String(value ?? "").trim()) {
+        return res.status(400).json({
+          success: false,
+          message: `${field} is required`,
+        });
+      }
+    }
+
+    const paymentMethod = String(req.body.paymentMethod || "COD").trim();
+    const razorpayOrderId = String(req.body.razorpayOrderId || "").trim();
+    const razorpayPaymentId = String(req.body.razorpayPaymentId || "").trim();
+    const razorpaySignature = String(req.body.razorpaySignature || "").trim();
+
+    if (paymentMethod === "Razorpay") {
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: "Razorpay payment details are required",
+        });
+      }
+
+      if (!process.env.RAZORPAY_SECRET) {
+        throw new Error("RAZORPAY_SECRET is not configured");
+      }
+
+      const existingOrder = await Order.findOne({
+        $or: [
+          { "payment.gateway.orderId": razorpayOrderId },
+          { "payment.gateway.paymentId": razorpayPaymentId },
+        ],
+      });
+
+      if (existingOrder) {
+        return res.status(409).json({
+          success: false,
+          message: "This Razorpay payment has already been used",
+          order: existingOrder,
+        });
+      }
+
+      const generatedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_SECRET)
+        .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+        .digest("hex");
+
+      if (
+        generatedSignature.length !== razorpaySignature.length ||
+        !crypto.timingSafeEqual(
+          Buffer.from(generatedSignature),
+          Buffer.from(razorpaySignature),
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid Razorpay payment signature",
+        });
+      }
+    }
+
+    /* =====================================
+       CREATE ORDER
+    ===================================== */
+
 const formattedItems = await Promise.all(
   req.body.items.map(async (item) => {
     console.log("====================================");
@@ -146,11 +248,11 @@ const formattedItems = await Promise.all(
       // IMPORTANT
       variantSku: variant.sku,
 
-      price: Number(item.price),
+      price: Number(variant.price ?? item.price),
       quantity,
 
       total:
-        Number(item.price) * quantity,
+        Number(variant.price ?? item.price) * quantity,
     };
   })
 );
@@ -194,9 +296,8 @@ const formattedItems = await Promise.all(
 
     console.log("====================================");
     console.log("SAVE ORDER API HIT");
-    console.log("REQ BODY:", req.body);
-    console.log("USER:", req.user);
-    console.log("ITEMS:", req.body.items);
+    console.log("USER ID:", req.user?._id);
+    console.log("ITEM COUNT:", req.body?.items?.length || 0);
     console.log("====================================");
 
     console.log("====================================");
@@ -212,7 +313,31 @@ const formattedItems = await Promise.all(
     let couponCode = "";
     let couponDiscount = 0;
     let couponType = "";
-    let finalAmount = req.body.total;
+
+    const calculatedSubtotal = formattedItems.reduce(
+      (sum, item) => sum + Number(item.total || 0),
+      0,
+    );
+
+    const shippingCharge = Number(req.body.shippingCharge || 0);
+    const taxAmount = Number(req.body.tax || 0);
+
+    if (
+      !Number.isFinite(calculatedSubtotal) ||
+      calculatedSubtotal < 0 ||
+      !Number.isFinite(shippingCharge) ||
+      shippingCharge < 0 ||
+      !Number.isFinite(taxAmount) ||
+      taxAmount < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order pricing",
+      });
+    }
+
+    let finalAmount =
+      calculatedSubtotal + shippingCharge + taxAmount;
 
     if (req.body.couponCode) {
       const coupon = await Coupon.findOne({
@@ -235,7 +360,7 @@ const formattedItems = await Promise.all(
           message: "Coupon expired",
         });
       }
-      if (req.body.subtotal < coupon.minOrderAmount) {
+      if (calculatedSubtotal < coupon.minOrderAmount) {
         return res.status(400).json({
           success: false,
 
@@ -252,9 +377,9 @@ const formattedItems = await Promise.all(
         });
       }
 
-      const subtotal = req.body.subtotal || 0;
-      const shipping = req.body.shippingCharge || 0;
-      const tax = req.body.tax || 0;
+      const subtotal = calculatedSubtotal;
+      const shipping = shippingCharge;
+      const tax = taxAmount;
 
       if (coupon.discountType === "PERCENTAGE") {
         couponDiscount = (subtotal * coupon.discountValue) / 100;
@@ -272,15 +397,46 @@ const formattedItems = await Promise.all(
 
       couponType = coupon.discountType;
     }
+
     /* =====================================
-   CANCELLATION PERIOD - 7 DAYS
-===================================== */
+       VERIFY RAZORPAY ORDER AMOUNT
+    ===================================== */
+
+    if (paymentMethod === "Razorpay") {
+      const razorpayOrder = await razorpay.orders.fetch(razorpayOrderId);
+
+      if (!razorpayOrder) {
+        return res.status(400).json({
+          success: false,
+          message: "Razorpay order not found",
+        });
+      }
+
+      const expectedAmountPaise = Math.round(finalAmount * 100);
+
+      if (
+        Number(razorpayOrder.amount) !== expectedAmountPaise ||
+        razorpayOrder.currency !== "INR"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Razorpay amount does not match order total",
+        });
+      }
+    }
+
+    /* =====================================
+       CANCELLATION PERIOD - 7 DAYS
+    ===================================== */
 
     const cancelBefore = new Date();
     cancelBefore.setDate(cancelBefore.getDate() + 7);
     /* =====================================
-   DEDUCT STOCK
-===================================== */
+       DEDUCT STOCK
+    ===================================== */
+
+    const deductedStock = [];
+    let orderSaved = false;
 
     for (const item of formattedItems) {
       const result = await Product.updateOne(
@@ -310,7 +466,14 @@ const formattedItems = await Promise.all(
           `Insufficient stock for ${item.title} (${item.variantSku})`,
         );
       }
+
+      deductedStock.push({
+        productId: item.productId,
+        variantSku: item.variantSku,
+        quantity: item.quantity,
+      });
     }
+
     const order = new Order({
       userId: req.user._id,
       orderNumber: generateOrderNumber(),
@@ -370,19 +533,26 @@ const formattedItems = await Promise.all(
       },
 
       payment: {
-        method: req.body.paymentMethod || "COD",
-        status: req.body.paymentStatus || "Pending",
+        method: paymentMethod,
+        status: paymentMethod === "Razorpay" ? "Paid" : "Pending",
 
         gateway: {
-          orderId: req.body.razorpayOrderId || "",
-          paymentId: req.body.razorpayPaymentId || "",
-          signature: req.body.razorpaySignature || "",
+          orderId: razorpayOrderId,
+          paymentId: razorpayPaymentId,
+          signature: razorpaySignature,
         },
       },
       cancellation: {
         allowed: true,
         cancelBefore,
       },
+
+      stock: {
+        deducted: true,
+        restored: false,
+        deductedAt: new Date(),
+      },
+
       items: formattedItems,
     });
 
@@ -417,7 +587,7 @@ const formattedItems = await Promise.all(
 
     console.log("RAZORPAY PAYMENT ID:", req.body.razorpayPaymentId);
 
-    console.log("RAZORPAY SIGNATURE:", req.body.razorpaySignature);
+    console.log("RAZORPAY PAYMENT RECEIVED:", Boolean(razorpayPaymentId));
     console.log("ORDER ITEMS RECEIVED");
 
     req.body.items.forEach((item) => {
@@ -431,6 +601,7 @@ const formattedItems = await Promise.all(
     });
 
     const savedOrder = await order.save();
+    orderSaved = true;
     /* =====================================
    MARK COUPON USED
 ===================================== */
@@ -884,12 +1055,41 @@ https://odikart.in/track-order
       order,
     });
   } catch (error) {
-    console.error("Save Order Error:", error);
+    console.error("====================================");
+    console.error("SAVE ORDER ERROR:", error.message);
+    console.error("====================================");
 
-    res.status(500).json({
+    if (typeof orderSaved !== "undefined" && !orderSaved) {
+      try {
+        if (typeof deductedStock !== "undefined" && deductedStock.length) {
+          for (const item of deductedStock) {
+            await Product.updateOne(
+              {
+                _id: item.productId,
+                "variants.sku": item.variantSku,
+              },
+              {
+                $inc: {
+                  "variants.$.stock": item.quantity,
+                  "variants.$.sold": -item.quantity,
+                },
+              },
+            );
+          }
+
+          console.log("ROLLBACK: stock restored after failed order save");
+        }
+      } catch (rollbackError) {
+        console.error(
+          "CRITICAL: STOCK ROLLBACK FAILED:",
+          rollbackError.message,
+        );
+      }
+    }
+
+    return res.status(500).json({
       success: false,
-
-      error: "Failed to save order",
+      error: error.message || "Failed to save order",
     });
   }
 };
@@ -1247,123 +1447,8 @@ export const cancelOrder = async (req, res) => {
     }
 
     /* =====================================
-       RESTORE PRODUCT VARIANT STOCK
-    ===================================== */
-
-    console.log("====================================");
-    console.log("RESTORING STOCK");
-    console.log("====================================");
-
- for (const item of order.items) {
-  const quantity = Number(item.quantity || 0);
-
-  if (!item.productId || quantity <= 0) {
-    continue;
-  }
-
-  console.log("\n====================================");
-  console.log("🔄 RESTORE STOCK START");
-  console.log("Product ID:", item.productId);
-  console.log("Order SKU:", item.variantSku);
-  console.log("Quantity:", quantity);
-  console.log("Title:", item.title);
-
-  // Get product directly
-  const product = await Product.findById(item.productId);
-
-  console.log("PRODUCT FOUND:", !!product);
-
-  if (!product) {
-    throw new Error(
-      `Product not found: ${item.productId}`
-    );
-  }
-
-  console.log("PRODUCT TITLE:", product.title);
-  console.log("PRODUCT STATUS:", product.status);
-  console.log("PRODUCT ACTIVE:", product.isActive);
-  console.log("PRODUCT DELETED:", product.isDeleted);
-
-  console.log(
-    "PRODUCT VARIANTS:",
-    product.variants?.map(v => ({
-      sku: v.sku,
-      stock: v.stock,
-      sold: v.sold,
-      isActive: v.isActive
-    }))
-  );
-
-  // Find variant
-  const variant = product.variants?.find(
-    v => String(v.sku).trim() === String(item.variantSku).trim()
-  );
-
-  console.log("MATCHED VARIANT:", variant);
-
-  if (!variant) {
-    throw new Error(
-      `SKU ${item.variantSku} not found in product ${product.title}`
-    );
-  }
-
-  console.log("BEFORE STOCK:", variant.stock);
-  console.log("BEFORE SOLD:", variant.sold);
-
-  // Restore stock
-  const result = await Product.updateOne(
-    {
-      _id: item.productId,
-      "variants.sku": variant.sku
-    },
-    {
-      $inc: {
-        "variants.$.stock": quantity,
-        "variants.$.sold": -quantity
-      }
-    }
-  );
-
-  console.log("UPDATE RESULT:", {
-    matchedCount: result.matchedCount,
-    modifiedCount: result.modifiedCount
-  });
-
-  if (result.matchedCount !== 1) {
-    throw new Error(
-      `Product/variant not matched while restoring stock`
-    );
-  }
-
-  if (result.modifiedCount !== 1) {
-    throw new Error(
-      `Stock update did not modify product`
-    );
-  }
-
-  // Verify after update
-  const updatedProduct =
-    await Product.findById(item.productId);
-
-  const updatedVariant =
-    updatedProduct.variants.find(
-      v => v.sku === variant.sku
-    );
-
-  console.log("AFTER STOCK:", updatedVariant.stock);
-  console.log("AFTER SOLD:", updatedVariant.sold);
-
-  console.log("✅ STOCK RESTORED");
-  console.log("====================================\n");
-}
-
-    console.log("====================================");
-    console.log("ALL STOCK RESTORED");
-    console.log("====================================");
-
-    /* =====================================
-       REFUND
-    ===================================== */
+       REFUND FIRST FOR PAID RAZORPAY ORDERS
+       ===================================== */
 
     console.log("PAYMENT METHOD:", order.payment?.method);
     console.log("PAYMENT STATUS:", order.payment?.status);
@@ -1371,28 +1456,171 @@ export const cancelOrder = async (req, res) => {
 
     let refundCreated = false;
 
+    const paymentMethodNormalized =
+      String(order.payment?.method || "").trim().toLowerCase();
+
     if (
-      order.payment?.method === "Razorpay" &&
+      paymentMethodNormalized === "razorpay" &&
       order.payment?.status === "Paid" &&
       order.payment?.gateway?.paymentId
     ) {
       console.log("STARTING RAZORPAY REFUND");
 
-      const refund = await razorpay.payments.refund(
-        order.payment.gateway.paymentId,
+      try {
+        const refundAmount = Math.round(
+          Number(order.pricing?.total || 0) * 100
+        );
+
+        if (!Number.isInteger(refundAmount) || refundAmount <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid refund amount",
+          });
+        }
+
+        const refund = await razorpay.payments.refund(
+          order.payment.gateway.paymentId,
+          {
+            amount: refundAmount,
+          },
+        );
+
+        console.log("REFUND SUCCESS:", refund);
+
+        order.payment.status = "Refunded";
+
+        if (!order.refund) {
+          order.refund = {};
+        }
+
+        order.refund.refundId = refund.id;
+        order.refund.status = "Completed";
+        order.refund.amount = Number(order.pricing?.total || 0);
+        order.refund.refundedAt = new Date();
+
+        refundCreated = true;
+      } catch (refundError) {
+        console.error("====================================");
+        console.error("RAZORPAY REFUND FAILED");
+        console.error("====================================");
+        console.error(refundError);
+
+        const description =
+          refundError?.error?.description ||
+          refundError?.description ||
+          refundError?.message ||
+          "Razorpay refund failed";
+
+        const insufficientBalance =
+          description.toLowerCase().includes("not have enough balance") ||
+          description.toLowerCase().includes("insufficient balance");
+
+        return res.status(400).json({
+          success: false,
+          refundFailed: true,
+          message: insufficientBalance
+            ? "Refund could not be processed because the Razorpay account has insufficient available balance. The order was NOT cancelled and stock was NOT restored."
+            : `Refund could not be processed: ${description}`,
+          error: description,
+        });
+      }
+    }
+
+    /* =====================================
+       RESTORE PRODUCT VARIANT STOCK
+       ONLY AFTER REFUND SUCCEEDS
+       ===================================== */
+
+    console.log("====================================");
+    console.log("RESTORING STOCK");
+    console.log("====================================");
+
+    for (const item of order.items) {
+      const quantity = Number(item.quantity || 0);
+
+      if (!item.productId || quantity <= 0) {
+        continue;
+      }
+
+      console.log("\n====================================");
+      console.log("🔄 RESTORE STOCK START");
+      console.log("Product ID:", item.productId);
+      console.log("Order SKU:", item.variantSku);
+      console.log("Quantity:", quantity);
+      console.log("Title:", item.title);
+
+      const product = await Product.findById(item.productId);
+
+      console.log("PRODUCT FOUND:", !!product);
+
+      if (!product) {
+        throw new Error(`Product not found: ${item.productId}`);
+      }
+
+      const variant = product.variants?.find(
+        v =>
+          String(v.sku).trim() ===
+          String(item.variantSku || "").trim()
+      );
+
+      console.log("MATCHED VARIANT:", variant);
+
+      if (!variant) {
+        throw new Error(
+          `SKU ${item.variantSku} not found in product ${product.title}`
+        );
+      }
+
+      console.log("BEFORE STOCK:", variant.stock);
+      console.log("BEFORE SOLD:", variant.sold);
+
+      const result = await Product.updateOne(
         {
-          amount: Math.round(order.pricing.total * 100),
+          _id: item.productId,
+          "variants.sku": variant.sku,
+        },
+        {
+          $inc: {
+            "variants.$.stock": quantity,
+            "variants.$.sold": -quantity,
+          },
         },
       );
 
-      console.log("REFUND SUCCESS:", refund);
+      console.log("UPDATE RESULT:", {
+        matchedCount: result.matchedCount,
+        modifiedCount: result.modifiedCount,
+      });
 
-      order.payment.status = "Refunded";
+      if (result.matchedCount !== 1 || result.modifiedCount !== 1) {
+        throw new Error(
+          `Stock update failed for ${item.title} (${item.variantSku})`
+        );
+      }
 
-      order.refund.refundId = refund.id;
-      order.refund.status = "Completed";
+      const updatedProduct = await Product.findById(item.productId);
 
-      refundCreated = true;
+      const updatedVariant = updatedProduct?.variants?.find(
+        v => v.sku === variant.sku
+      );
+
+      console.log("AFTER STOCK:", updatedVariant?.stock);
+      console.log("AFTER SOLD:", updatedVariant?.sold);
+      console.log("✅ STOCK RESTORED");
+      console.log("====================================\n");
+    }
+
+    console.log("====================================");
+    console.log("ALL STOCK RESTORED");
+    console.log("====================================");
+
+    /* =====================================
+       MARK STOCK AS RESTORED
+    ===================================== */
+
+    if (order.stock) {
+      order.stock.restored = true;
+      order.stock.restoredAt = new Date();
     }
 
     /* =====================================
@@ -1857,7 +2085,9 @@ We hope to serve you again soon 🛒
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Server error",
+      message:
+        error.message ||
+        "Order cancellation failed after payment processing. Please contact support.",
     });
   }
 };

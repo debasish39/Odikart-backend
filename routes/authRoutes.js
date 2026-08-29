@@ -6,6 +6,7 @@ import {
   verifySigninOTP,
   resendOTP,
  signinWithPassword,
+ adminLogin,
  sendLoginOTP,resendLoginOTP,getUsers,changePassword, forgotPassword, verifyResetPasswordOTP, 
  checkExistingAccount,resetPassword,getMe,updateProfile,  deleteMyAccount,
 } from "../controllers/authController.js";
@@ -28,7 +29,15 @@ router.post(
   "/signin-password",
   signinWithPassword
 );
+router.post(
+  "/signin-password",
+  signinWithPassword
+);
 
+router.post(
+  "/admin-login",
+  adminLogin
+);
 router.post(
   "/signin-otp",
   sendLoginOTP
