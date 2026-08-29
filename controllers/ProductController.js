@@ -927,6 +927,282 @@ const validateVariants = (variants) => {
   };
 };
 
+/* =====================================================
+   APPLY PRODUCT OFFER TO VARIANTS
+===================================================== */
+
+const applyOfferToVariants = (
+  variants,
+  offer
+) => {
+
+  if (!Array.isArray(variants)) {
+    return variants;
+  }
+
+
+  /*
+    No offer
+    -----------------------------
+    Restore normal price from
+    originalPrice when available.
+  */
+
+  if (
+    !offer ||
+    offer.enabled !== true
+  ) {
+
+    return variants.map(
+      (variant) => {
+
+        const originalPrice =
+          Number(
+            variant.originalPrice ||
+            variant.price ||
+            0
+          );
+
+        return {
+          ...variant,
+
+          price:
+            originalPrice,
+
+          originalPrice,
+
+          discountPercentage: 0,
+        };
+
+      }
+    );
+
+  }
+
+
+  const discountType =
+    offer.discountType === "fixed"
+      ? "fixed"
+      : "percentage";
+
+
+  const discountValue =
+    Number(
+      offer.value || 0
+    );
+
+  /*
+    Percentage discounts must be between 0 and 100.
+  */
+  if (
+    discountType === "percentage" &&
+    (
+      !Number.isFinite(discountValue) ||
+      discountValue <= 0 ||
+      discountValue > 100
+    )
+  ) {
+
+    return variants.map(
+      (variant) => {
+
+        const originalPrice =
+          Number(
+            variant.originalPrice ||
+            variant.price ||
+            0
+          );
+
+        return {
+          ...variant,
+
+          price:
+            originalPrice,
+
+          originalPrice,
+
+          discountPercentage: 0,
+        };
+
+      }
+    );
+
+  }
+
+
+  /*
+    Fixed discounts must be greater than zero.
+  */
+  if (
+    discountType === "fixed" &&
+    (
+      !Number.isFinite(discountValue) ||
+      discountValue <= 0
+    )
+  ) {
+    return variants.map(
+      (variant) => {
+        const originalPrice =
+          Number(
+            variant.originalPrice ||
+            variant.price ||
+            0
+          );
+
+        return {
+          ...variant,
+          price: originalPrice,
+          originalPrice,
+          discountPercentage: 0,
+        };
+      }
+    );
+  }
+
+
+  /*
+    Apply discount to every variant
+  */
+
+  return variants.map(
+    (variant) => {
+
+      const originalPrice =
+        Number(
+          variant.originalPrice ||
+          variant.price ||
+          0
+        );
+
+
+      if (
+        !Number.isFinite(
+          originalPrice
+        ) ||
+        originalPrice <= 0
+      ) {
+
+        return {
+          ...variant,
+          price: 0,
+          originalPrice: 0,
+          discountPercentage: 0,
+        };
+
+      }
+
+
+      let discountAmount = 0;
+
+
+      /*
+        PERCENTAGE
+
+        Example:
+
+        ₹1200
+        20%
+
+        Discount = ₹240
+        Final = ₹960
+      */
+
+      if (
+        discountType ===
+        "percentage"
+      ) {
+
+        discountAmount =
+          originalPrice *
+          (
+            discountValue / 100
+          );
+
+      }
+
+
+      /*
+        FIXED
+
+        Example:
+
+        ₹1200
+        ₹200 OFF
+
+        Final = ₹1000
+      */
+
+      if (
+        discountType ===
+        "fixed"
+      ) {
+
+        discountAmount =
+          discountValue;
+
+      }
+
+
+      /*
+        Never allow negative price
+      */
+
+      discountAmount =
+        Math.min(
+          discountAmount,
+          originalPrice
+        );
+
+
+      const finalPrice =
+        originalPrice -
+        discountAmount;
+
+
+      const discountPercentage =
+        originalPrice > 0
+          ? Math.round(
+              (
+                discountAmount /
+                originalPrice
+              ) * 100
+            )
+          : 0;
+
+
+      return {
+
+        ...variant,
+
+        /*
+          Keep original price.
+        */
+
+        originalPrice,
+
+        /*
+          Actual selling price.
+        */
+
+        price:
+          Math.round(
+            finalPrice
+          ),
+
+        /*
+          Useful for frontend.
+        */
+
+        discountPercentage,
+
+      };
+
+    }
+  );
+
+};
+
+
 /* =====================================
    ECOMMERCE DISCOVERY HELPERS
 ===================================== */
@@ -2636,10 +2912,26 @@ export const createProduct = async (req, res) => {
     const normalizedVariants =
       variantValidation.variants;
 
+    /* =====================================================
+       APPLY OFFER TO VARIANTS
+       Keep originalPrice as the base price and calculate
+       the actual selling price into price.
+    ===================================================== */
+
+    const finalVariants =
+      applyOfferToVariants(
+        normalizedVariants,
+        offer
+      );
 
     console.log(
       "✅ Normalized variants:",
       normalizedVariants
+    );
+
+    console.log(
+      "💰 Final variants after offer:",
+      finalVariants
     );
 
 
@@ -2765,7 +3057,7 @@ export const createProduct = async (req, res) => {
 
 
       variants:
-        normalizedVariants,
+        finalVariants,
 
 
       media,
@@ -3956,47 +4248,147 @@ export const getProduct = async (
 
 export const updateProduct = async (req, res) => {
   try {
-    const sellerId = req.user.id;
-    const { id } = req.params;
 
-    const seller = await getApprovedSeller(req, res);
+    const userId =
+      req.user?._id ||
+      req.user?.id;
 
-    if (!seller) {
-      return;
-    }
+    const userRole =
+      req.user?.role;
 
-    // =====================================
-    // VALIDATE PRODUCT ID
-    // =====================================
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: "Invalid product ID",
+        message: "Authentication required"
       });
     }
 
-    // =====================================
-    // FIND PRODUCT
-    // =====================================
-
-    const product = await Product.findOne({
-      _id: id,
-      seller: sellerId,
-      isDeleted: false,
-    });
+    const product =
+      await Product.findById(
+        req.params.id
+      );
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message:
-          "Product not found or you do not own this product",
+        message: "Product not found"
       });
     }
 
-    // =====================================
-    // BASIC PRODUCT FIELDS
-    // =====================================
+
+    /* =====================================================
+       ADMIN
+       -----------------------------------------------------
+       Admin can update ANY product.
+       No seller verification required.
+    ===================================================== */
+
+    if (userRole === "admin") {
+
+      // Admin can continue directly.
+
+    }
+
+
+    /* =====================================================
+       SELLER
+       -----------------------------------------------------
+       Seller can update ONLY own product.
+    ===================================================== */
+
+    else if (userRole === "seller") {
+
+      if (
+        String(product.seller) !==
+        String(userId)
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "You can only update your own products"
+        });
+
+      }
+
+
+      /* ================================================
+         SELLER VERIFICATION
+      ================================================ */
+
+      const seller =
+        await User.findById(
+          userId
+        ).select(
+          "role sellerStatus isBlocked isDeleted sellerInfo.verification.status"
+        );
+
+
+      if (!seller) {
+        return res.status(404).json({
+          success: false,
+          message: "Seller not found"
+        });
+      }
+
+
+      if (
+        seller.isBlocked ||
+        seller.isDeleted
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Seller account is not active"
+        });
+      }
+
+
+      if (
+        seller.sellerStatus !==
+        "approved"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Seller account is not approved"
+        });
+      }
+
+
+      if (
+        seller.sellerInfo
+          ?.verification
+          ?.status !== "approved"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Seller verification is not approved"
+        });
+      }
+
+    }
+
+
+    /* =====================================================
+       INVALID ROLE
+    ===================================================== */
+
+    else {
+
+      return res.status(403).json({
+        success: false,
+        message:
+          "Seller or admin access required"
+      });
+
+    }
+
+
+    /* =====================================================
+       UPDATE DATA
+    ===================================================== */
 
     const allowedFields = [
       "title",
@@ -4007,6 +4399,7 @@ export const updateProduct = async (req, res) => {
       "tags",
       "brand",
       "productType",
+      "variants",
       "currency",
       "minimumOrderQuantity",
       "maximumOrderQuantity",
@@ -4017,174 +4410,58 @@ export const updateProduct = async (req, res) => {
       "shippingInformation",
       "seo",
       "offer",
-      "media",
+      "featured",
+      "trending",
+      "bestSeller",
+      "isNewArrival",
+      "isActive"
     ];
 
-    for (const field of allowedFields) {
-      if (req.body[field] === undefined) {
-        continue;
-      }
+
+    for (
+      const field of allowedFields
+    ) {
 
       if (
-        [
-          "shipping",
-          "seo",
-          "offer",
-          "media",
-        ].includes(field)
+        req.body[field] !==
+        undefined
       ) {
-        product[field] = parseJsonField(
-          req.body[field],
-          product[field] || {}
-        );
-      } else if (field === "tags") {
-        const incomingTags =
-          parseJsonField(req.body[field], []);
 
-        product[field] = Array.isArray(incomingTags)
-          ? incomingTags
-              .map((tag) => cleanString(tag, 50))
-              .filter(Boolean)
-              .slice(0, 50)
-          : [];
-      } else {
-        product[field] = req.body[field];
-      }
-    }
+        product[field] =
+          req.body[field];
 
-    if (product.category) {
-      if (!isValidObjectId(product.category)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category",
-        });
-      }
-    }
-
-    if (
-      product.title &&
-      (
-        product.title.trim().length < 3 ||
-        product.title.trim().length > 200
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Product title must be between 3 and 200 characters",
-      });
-    }
-
-    if (
-      product.description &&
-      (
-        product.description.trim().length < 10 ||
-        product.description.trim().length > MAX_TEXT
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Product description must be between 10 and 20000 characters",
-      });
-    }
-
-    // =====================================
-    // UPDATE VARIANTS SAFELY
-    // =====================================
-
-    if (req.body.variants !== undefined) {
-      const incomingVariants =
-        parseJsonField(
-          req.body.variants,
-          []
-        );
-
-      const variantValidation =
-        validateVariants(incomingVariants);
-
-      if (!variantValidation.valid) {
-        return res.status(400).json({
-          success: false,
-          message: variantValidation.message,
-        });
       }
 
-      /*
-        Check the entire SKU set against other products.
-        Existing SKUs belonging to this product are allowed.
-      */
-      const incomingSkus =
-        variantValidation.variants.map(
-          (variant) => variant.sku
-        );
-
-      const duplicateProduct =
-        await Product.findOne({
-          _id: { $ne: product._id },
-          "variants.sku": {
-            $in: incomingSkus,
-          },
-          isDeleted: false,
-        }).select("_id");
-
-      if (duplicateProduct) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "One or more SKU already exist on another product",
-        });
-      }
-
-      product.variants =
-        variantValidation.variants;
     }
 
-    // =====================================
-    // RESUBMIT FOR APPROVAL
-    // =====================================
 
-    product.seller = sellerId;
-    product.isDeleted = false;
-    product.isActive = true;
-    if (
-      !["draft", "rejected", "pending"].includes(
-        product.status
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Product cannot be submitted in its current status",
-      });
-    }
+    /* =====================================================
+       APPLY OFFER
+    ===================================================== */
 
-    product.status = "pending";
+    product.variants =
+      applyOfferToVariants(
+        product.variants,
+        product.offer
+      );
 
-    product.approvalHistory.push({
-      action: "submitted",
-      reason: "Product updated and resubmitted",
-      performedBy: sellerId,
-    });
 
-    // =====================================
-    // SAVE
-    // =====================================
+    /* =====================================================
+       SAVE
+    ===================================================== */
 
     await product.save();
 
-    // =====================================
-    // RESPONSE
-    // =====================================
 
     return res.status(200).json({
       success: true,
       message:
-        "Product updated and submitted for approval",
-      product,
+        "Product updated successfully",
+      product
     });
 
   } catch (error) {
+
     console.error(
       "Update Product Error:",
       error
@@ -4192,8 +4469,11 @@ export const updateProduct = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "An unexpected error occurred",
+      message:
+        error.message ||
+        "Failed to update product"
     });
+
   }
 };
 /* =====================================

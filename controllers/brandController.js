@@ -1,11 +1,20 @@
+import mongoose from "mongoose";
 import Brand from "../models/Brand.js";
-// POST /api/brands
+import Category from "../models/Category.js";
+
+
+/* =====================================
+   CREATE BRAND
+   POST /api/brands
+===================================== */
+
 export const createBrand = async (req, res) => {
   try {
 
     const {
       name,
       category,
+      subCategory,
       description,
       logo,
       banner,
@@ -16,41 +25,158 @@ export const createBrand = async (req, res) => {
       featured
     } = req.body;
 
-    if (!name || !category) {
+
+    /* =====================================
+       REQUIRED FIELDS
+    ===================================== */
+
+    if (!name || !category || !subCategory) {
       return res.status(400).json({
         success: false,
-        message: "Name and category are required"
+        message:
+          "Name, category and subcategory are required"
       });
     }
 
+
+    /* =====================================
+       VALIDATE IDS
+    ===================================== */
+
+    if (!mongoose.Types.ObjectId.isValid(category)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category ID"
+      });
+    }
+
+
+    if (!mongoose.Types.ObjectId.isValid(subCategory)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid subcategory ID"
+      });
+    }
+
+
+    /* =====================================
+       VERIFY CATEGORY
+    ===================================== */
+
+    const parentCategory =
+      await Category.findOne({
+        _id: category,
+        parentCategory: null,
+        isActive: true
+      });
+
+
+    if (!parentCategory) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found"
+      });
+    }
+
+
+    /* =====================================
+       VERIFY SUBCATEGORY
+    ===================================== */
+
+    const childCategory =
+      await Category.findOne({
+        _id: subCategory,
+        parentCategory: category,
+        isActive: true
+      });
+
+
+    if (!childCategory) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Subcategory does not belong to selected category"
+      });
+    }
+
+
+    /* =====================================
+       CREATE BRAND
+    ===================================== */
+
     const brand = await Brand.create({
-      name,
+
+      name: name.trim(),
+
       category,
-      description,
-      logo,
-      banner,
-      website,
-      country,
-      email,
-      phone,
-      featured
+
+      subCategory,
+
+      description: description || "",
+
+      logo: logo || "",
+
+      banner: banner || "",
+
+      website: website || "",
+
+      country: country || "",
+
+      email: email || "",
+
+      phone: phone || "",
+
+      featured: featured || false
+
     });
 
-    res.status(201).json({
+
+    return res.status(201).json({
+
       success: true,
-      message: "Brand created successfully",
+
+      message:
+        "Brand created successfully",
+
       brand
+
     });
+
 
   } catch (error) {
 
-    res.status(500).json({
+    console.error(
+      "Create Brand Error:",
+      error
+    );
+
+
+    if (error.code === 11000) {
+
+      return res.status(409).json({
+
+        success: false,
+
+        message:
+          "Brand name or slug already exists"
+
+      });
+
+    }
+
+
+    return res.status(500).json({
+
       success: false,
+
       message: error.message
+
     });
 
   }
 };
+
+
 
 // GET /api/brands
 export const getBrands = async (req, res) => {
@@ -106,6 +232,129 @@ export const getBrandById = async (req, res) => {
   }
 
 };
+
+/* =====================================
+   GET BRANDS BY SUBCATEGORY
+   GET /api/brands/subcategory/:subCategoryId
+===================================== */
+
+export const getBrandsBySubCategory = async (
+  req,
+  res
+) => {
+
+  try {
+
+    const { subCategoryId } =
+      req.params;
+
+
+    /* =====================================
+       VALIDATE ID
+    ===================================== */
+
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        subCategoryId
+      )
+    ) {
+
+      return res.status(400).json({
+
+        success: false,
+
+        message:
+          "Invalid subcategory ID"
+
+      });
+
+    }
+
+
+    /* =====================================
+       VERIFY SUBCATEGORY
+    ===================================== */
+
+    const subCategory =
+      await Category.findOne({
+
+        _id: subCategoryId,
+
+        parentCategory: {
+          $ne: null
+        },
+
+        isActive: true
+
+      });
+
+
+    if (!subCategory) {
+
+      return res.status(404).json({
+
+        success: false,
+
+        message:
+          "Subcategory not found"
+
+      });
+
+    }
+
+
+    /* =====================================
+       GET BRANDS
+    ===================================== */
+
+    const brands =
+      await Brand.find({
+
+        subCategory: subCategoryId,
+
+        isActive: true
+
+      })
+      .sort({
+        name: 1
+      })
+      .lean();
+
+
+    return res.status(200).json({
+
+      success: true,
+
+      count: brands.length,
+
+      subCategory,
+
+      brands
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "Get Brands By Subcategory Error:",
+      error
+    );
+
+
+    return res.status(500).json({
+
+      success: false,
+
+      message: error.message
+
+    });
+
+  }
+
+};
+
+
 // PUT /api/brands/:id
 export const updateBrand = async (req, res) => {
 

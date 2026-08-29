@@ -46,6 +46,16 @@ const brandSchema = new mongoose.Schema(
     },
 
     /* =====================================
+       SUBCATEGORY
+    ===================================== */
+
+    subCategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+    },
+
+    /* =====================================
        BRAND DETAILS
     ===================================== */
 
@@ -113,13 +123,14 @@ const brandSchema = new mongoose.Schema(
   }
 );
 
+
 /* =====================================
    AUTO GENERATE SLUG
 ===================================== */
 
-brandSchema.pre("save",async function () {
+brandSchema.pre("save", async function () {
 
-  if (!this.slug) {
+  if (!this.slug && this.name) {
     this.slug = this.name
       .toLowerCase()
       .trim()
@@ -127,7 +138,8 @@ brandSchema.pre("save",async function () {
       .replace(/[^\w-]+/g, "");
   }
 
-
 });
 
+
 export default mongoose.model("Brand", brandSchema);
+

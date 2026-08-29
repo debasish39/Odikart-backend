@@ -1081,53 +1081,76 @@ productSchema.methods.updateEcommerceFlags =
 
 productSchema.pre(
   "save",
-  function (next) {
-    try {
-      if (this.analytics) {
-        this.analytics.trendingScore =
-          this.calculateTrendingScore();
+  function () {
 
-        this.analytics.popularityScore =
-          Number(
-            (
-              Number(
-                this.analytics.trendingScore || 0
-              ) +
-              Number(this.rating || 0) * 5 +
-              Number(this.numReviews || 0) +
-              Number(
-                this.analytics.sales || 0
-              ) * 2
-            ).toFixed(2)
-          );
+    /* =====================================
+       UPDATE ANALYTICS
+    ===================================== */
 
-        const views = Number(
+    if (this.analytics) {
+
+      this.analytics.trendingScore =
+        this.calculateTrendingScore();
+
+
+      this.analytics.popularityScore =
+        Number(
+          (
+            Number(
+              this.analytics.trendingScore || 0
+            ) +
+
+            Number(
+              this.rating || 0
+            ) * 5 +
+
+            Number(
+              this.numReviews || 0
+            ) +
+
+            Number(
+              this.analytics.sales || 0
+            ) * 2
+
+          ).toFixed(2)
+        );
+
+
+      const views =
+        Number(
           this.analytics.views || 0
         );
 
-        const orders = Number(
+
+      const orders =
+        Number(
           this.analytics.orders || 0
         );
 
-        this.analytics.conversionRate =
-          views > 0
-            ? Number(
-                (
-                  (orders / views) *
-                  100
-                ).toFixed(2)
-              )
-            : 0;
-      }
 
-      this.updateEcommerceFlags();
+      this.analytics.conversionRate =
+        views > 0
+          ? Number(
+              (
+                (orders / views) *
+                100
+              ).toFixed(2)
+            )
+          : 0;
 
-      next();
-    } catch (error) {
-      next(error);
     }
+
+
+    /* =====================================
+       UPDATE ECOMMERCE FLAGS
+    ===================================== */
+
+    this.updateEcommerceFlags();
+
   }
 );
+
+
 
 /* =====================================
    ECOMMERCE PERFORMANCE INDEXES
@@ -1207,7 +1230,7 @@ productSchema.index({
    AUTO GENERATE SLUG
 ===================================== */
 
-productSchema.pre("save", async function () {
+productSchema.pre("save", function () {
   if (this.title && this.isModified("title")) {
     this.slug = this.title
       .toLowerCase()

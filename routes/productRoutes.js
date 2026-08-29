@@ -510,7 +510,6 @@ router.put(
     "admin"
   ),
 
-  sellerVerificationMiddleware,
 
   updateProduct
 );
