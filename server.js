@@ -39,20 +39,31 @@ const app =
 ===================================================== */
 
 connectDB();
-
-
 /* =====================================================
    CORS
 ===================================================== */
+const allowedOrigins = [ "http://localhost:5173", process.env.FRONTEND_URL, process.env.FRONTEND_URL_WWW, ].filter(Boolean);
 
 app.use(
   cors({
+    origin: function (origin, callback) {
+      // Allow Postman/server-to-server requests
+      if (!origin) {
+        return callback(null, true);
+      }
 
-    origin:
-      "http://localhost:5173",
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
-    credentials:
-      true,
+      console.warn("❌ CORS blocked origin:", origin);
+
+      return callback(
+        new Error("Not allowed by CORS")
+      );
+    },
+
+    credentials: true,
 
     methods: [
       "GET",
@@ -68,11 +79,8 @@ app.use(
       "Authorization",
       "Accept",
     ],
-
   })
 );
-
-
 /* =====================================================
    COOKIE
 ===================================================== */
