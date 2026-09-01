@@ -59,15 +59,37 @@ const findAvailableProduct = async (productId) => {
 
   Cart data is refreshed from the current Product document.
 */
+
+/*
+|--------------------------------------------------------------------------
+| Build cart item
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+| Cart items contain the CURRENT pricing information needed
+| by the frontend checkout calculation.
+|
+| Product/Variant remains the source of truth.
+|
+*/
+
 const buildCartItem = (
   product,
   selectedVariant,
   variantSku,
   quantity
 ) => {
+
   const price = selectedVariant
-    ? Number(selectedVariant.price)
+    ? Number(selectedVariant.price || 0)
     : Number(product.price ?? 0);
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | IMAGE
+  |--------------------------------------------------------------------------
+  */
 
   const image =
     selectedVariant?.images?.[0] ||
@@ -75,24 +97,124 @@ const buildCartItem = (
     product.media?.images?.[0] ||
     "";
 
+
+  /*
+  |--------------------------------------------------------------------------
+  | ATTRIBUTES
+  |--------------------------------------------------------------------------
+  */
+
   const attributes = selectedVariant
     ? Object.fromEntries(
         selectedVariant.attributes || []
       )
     : {};
 
+
+  /*
+  |--------------------------------------------------------------------------
+  | VARIANT PRICING
+  |--------------------------------------------------------------------------
+  */
+
+  const discountPercentage =
+    Number(
+      selectedVariant?.discountPercentage || 0
+    );
+
+
+  const taxPercentage =
+    Number(
+      selectedVariant?.tax || 0
+    );
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | PRODUCT OFFER
+  |--------------------------------------------------------------------------
+  */
+
+  const offer = product.offer
+    ? {
+        enabled:
+          product.offer.enabled === true,
+
+        discountType:
+          product.offer.discountType ||
+          "percentage",
+
+        value:
+          Number(
+            product.offer.value || 0
+          ),
+
+        startDate:
+          product.offer.startDate || null,
+
+        endDate:
+          product.offer.endDate || null,
+      }
+    : {
+        enabled: false,
+
+        discountType:
+          "percentage",
+
+        value: 0,
+
+        startDate: null,
+
+        endDate: null,
+      };
+
+
+  /*
+  |--------------------------------------------------------------------------
+  | RETURN CART ITEM
+  |--------------------------------------------------------------------------
+  */
+
   return {
-    productId: product._id,
-    variantSku: variantSku || "",
+
+    productId:
+      product._id,
+
+    variantSku:
+      variantSku || "",
+
     attributes,
-    title: String(
-      product.title || ""
-    ).slice(0, MAX_TITLE_LENGTH),
+
+    title:
+      String(
+        product.title || ""
+      ).slice(
+        0,
+        MAX_TITLE_LENGTH
+      ),
+
     price,
+
     image,
+
     quantity,
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PRICING INFORMATION
+    |--------------------------------------------------------------------------
+    */
+
+    taxPercentage,
+
+    discountPercentage,
+
+    offer,
   };
 };
+
+
 
 /*
   Revalidate every cart item against the database.

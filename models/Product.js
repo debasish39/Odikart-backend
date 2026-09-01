@@ -302,12 +302,12 @@ const productSchema = new mongoose.Schema(
           min: 0,
         },
 
-        tax: {
-          type: Number,
-          default: 0,
-          min: 0,
-        },
-
+      tax: {
+  type: Number,
+  default: 0,
+  min: 0,
+  max: 100,
+},
         stock: {
           type: Number,
           default: 0,
@@ -406,31 +406,55 @@ const productSchema = new mongoose.Schema(
       ],
     },
 
-    /* =====================================
-       SHIPPING
-    ===================================== */
+   /* =====================================
+   SHIPPING
+===================================== */
 
-    shipping: {
-      freeShipping: {
-        type: Boolean,
-        default: false,
-      },
+shipping: {
 
-      shippingCharge: {
-        type: Number,
-        default: 0,
-      },
+  freeShipping: {
+    type: Boolean,
+    default: false,
+  },
 
-      processingTime: {
-        type: Number,
-        default: 2,
-      },
+  shippingCharge: {
+    type: Number,
+    default: 0,
+  },
 
-      returnDays: {
-        type: Number,
-        default: 7,
+  processingTime: {
+    type: Number,
+    default: 2,
+  },
+
+  returnDays: {
+    type: Number,
+    default: 7,
+  },
+
+  /* =====================================
+     SERVICEABLE PIN CODES
+     
+     Empty array = product can be delivered
+     to all PIN codes.
+
+     Non-empty array = only these PIN codes
+     are allowed.
+  ===================================== */
+
+  serviceablePincodes: {
+    type: [
+      {
+        type: String,
+        trim: true,
+        match: /^[1-9][0-9]{5}$/,
       },
-    },
+    ],
+
+    default: [],
+  },
+
+},
 
     /* =====================================
        PRODUCT DETAILS

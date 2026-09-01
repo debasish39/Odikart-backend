@@ -8,10 +8,14 @@ const cartItemSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Selected variant
+    // =====================================================
+    // SELECTED VARIANT
+    // =====================================================
+
     variantSku: {
       type: String,
       default: "",
+      trim: true,
     },
 
     // Snapshot of selected variant attributes
@@ -21,7 +25,10 @@ const cartItemSchema = new mongoose.Schema(
       default: {},
     },
 
-    // Product information snapshot
+    // =====================================================
+    // PRODUCT INFORMATION SNAPSHOT
+    // =====================================================
+
     title: {
       type: String,
       required: true,
@@ -30,6 +37,7 @@ const cartItemSchema = new mongoose.Schema(
     price: {
       type: Number,
       required: true,
+      min: 0,
     },
 
     image: {
@@ -42,11 +50,82 @@ const cartItemSchema = new mongoose.Schema(
       default: 1,
       min: 1,
     },
+
+    // =====================================================
+    // PRICING INFORMATION
+    // =====================================================
+
+    /*
+     * Tax percentage from Product variant.
+     *
+     * Example:
+     * 18 = 18%
+     *
+     * IMPORTANT:
+     * This is a percentage, NOT the final tax amount.
+     */
+
+    taxPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /*
+     * Variant discount percentage.
+     *
+     * Example:
+     * 15 = 15%
+     */
+
+    discountPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // =====================================================
+    // PRODUCT OFFER SNAPSHOT
+    // =====================================================
+
+    offer: {
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+
+      discountType: {
+        type: String,
+        enum: ["percentage", "fixed"],
+        default: "percentage",
+      },
+
+      value: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      startDate: {
+        type: Date,
+        default: null,
+      },
+
+      endDate: {
+        type: Date,
+        default: null,
+      },
+    },
   },
   {
     _id: true,
   }
 );
+
+
+// =========================================================
+// CART
+// =========================================================
 
 const cartSchema = new mongoose.Schema(
   {
@@ -57,13 +136,16 @@ const cartSchema = new mongoose.Schema(
       unique: true,
     },
 
-    items: [cartItemSchema],
+    items: {
+      type: [cartItemSchema],
+      default: [],
+    },
   },
-
   {
     timestamps: true,
   }
 );
+
 
 const Cart = mongoose.model(
   "Cart",
@@ -71,3 +153,4 @@ const Cart = mongoose.model(
 );
 
 export default Cart;
+
