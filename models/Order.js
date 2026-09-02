@@ -836,9 +836,6 @@ orderSchema.index({
   "payment.status": 1,
 });
 
-orderSchema.index({
-  "shipping.trackingNumber": 1,
-});
 
 /* =========================================================
    MODEL

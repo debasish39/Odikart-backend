@@ -57,6 +57,12 @@ const addressSchema = new mongoose.Schema(
       trim: true,
     },
 
+    village: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
     city: {
       type: String,
       required: true,
