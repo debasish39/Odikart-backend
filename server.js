@@ -27,7 +27,7 @@ import razorpayWebhookRoutes
   from "./routes/razorpayWebhookRoutes.js";
 
 import serviceabilityRoutes from "./routes/serviceabilityRoutes.js";
-
+import addressRoutes from "./routes/addressRoutes.js";
 dotenv.config();
 
 
@@ -250,6 +250,7 @@ app.use(
 );
 
 app.use("/api/serviceability", serviceabilityRoutes);
+app.use("/api/addresses",addressRoutes);
 /* =====================================================
    COUPONS
 ===================================================== */
