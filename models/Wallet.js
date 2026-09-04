@@ -49,6 +49,8 @@ const walletSchema = new mongoose.Schema(
     currency: {
       type: String,
       default: "INR",
+      uppercase: true,
+      trim: true,
     },
 
     isActive: {
@@ -56,12 +58,7 @@ const walletSchema = new mongoose.Schema(
       default: true,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-export default mongoose.model(
-  "Wallet",
-  walletSchema
-);
+export default mongoose.model("Wallet", walletSchema);

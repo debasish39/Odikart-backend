@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
+import Address from "../models/Address.js";
 
 /* =========================================================
    CONSTANTS
@@ -2752,3 +2754,36 @@ export const switchMode =
       });
     }
   };
+  export const getUserAddressesForAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    const addresses = await Address.find({
+      userId,
+      isDeleted: false,
+    })
+      .sort({ isDefault: -1, createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      count: addresses.length,
+      addresses,
+    });
+  } catch (error) {
+    console.error("getUserAddressesForAdmin error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch user addresses",
+      error: error.message,
+    });
+  }
+};

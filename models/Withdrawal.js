@@ -2,20 +2,12 @@ import mongoose from "mongoose";
 
 const withdrawalSchema = new mongoose.Schema(
   {
-    // =====================================
-    // SELLER
-    // =====================================
-
     sellerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true,
     },
-
-    // =====================================
-    // AMOUNT
-    // =====================================
 
     amount: {
       type: Number,
@@ -26,15 +18,12 @@ const withdrawalSchema = new mongoose.Schema(
     currency: {
       type: String,
       default: "INR",
+      uppercase: true,
+      trim: true,
     },
-
-    // =====================================
-    // STATUS
-    // =====================================
 
     status: {
       type: String,
-
       enum: [
         "PENDING",
         "PROCESSING",
@@ -43,15 +32,9 @@ const withdrawalSchema = new mongoose.Schema(
         "CANCELLED",
         "REJECTED",
       ],
-
       default: "PENDING",
-
       index: true,
     },
-
-    // =====================================
-    // BANK ACCOUNT
-    // =====================================
 
     bankAccount: {
       accountHolderName: {
@@ -59,55 +42,41 @@ const withdrawalSchema = new mongoose.Schema(
         required: true,
         trim: true,
       },
-
       accountNumber: {
         type: String,
         required: true,
+        trim: true,
       },
-
       ifsc: {
         type: String,
         required: true,
         uppercase: true,
         trim: true,
       },
-
       bankName: {
         type: String,
         default: "",
+        trim: true,
       },
     },
 
-    // =====================================
-    // PROVIDER
-    // =====================================
-
     provider: {
       type: String,
-
-      enum: [
-        "INTERNAL",
-        "RAZORPAY",
-        "CASHFREE",
-        "OTHER",
-      ],
-
+      enum: ["INTERNAL", "RAZORPAY", "CASHFREE", "OTHER"],
       default: "INTERNAL",
     },
 
     providerPayoutId: {
       type: String,
       default: "",
+      trim: true,
     },
 
     referenceId: {
       type: String,
       default: "",
+      trim: true,
     },
-
-    // =====================================
-    // ADMIN
-    // =====================================
 
     processedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -118,20 +87,14 @@ const withdrawalSchema = new mongoose.Schema(
     adminNote: {
       type: String,
       default: "",
+      trim: true,
     },
-
-    // =====================================
-    // FAILURE
-    // =====================================
 
     failureReason: {
       type: String,
       default: "",
+      trim: true,
     },
-
-    // =====================================
-    // DATES
-    // =====================================
 
     processedAt: {
       type: Date,
@@ -148,24 +111,10 @@ const withdrawalSchema = new mongoose.Schema(
       default: null,
     },
   },
-
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
+withdrawalSchema.index({ sellerId: 1, createdAt: -1 });
+withdrawalSchema.index({ sellerId: 1, status: 1, createdAt: -1 });
 
-// =====================================
-// SELLER WITHDRAWAL HISTORY
-// =====================================
-
-withdrawalSchema.index({
-  sellerId: 1,
-  createdAt: -1,
-});
-
-
-export default mongoose.model(
-  "Withdrawal",
-  withdrawalSchema
-);
+export default mongoose.model("Withdrawal", withdrawalSchema);

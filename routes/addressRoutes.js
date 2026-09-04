@@ -5,10 +5,11 @@ import {
   getMyAddresses,
   updateAddress,
   deleteAddress,
+  getUserAddressesForAdmin
 } from "../controllers/addressController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
-
+import authorizeRoles from "../middleware/roleMiddleware.js";
 const router =
   express.Router();
 
@@ -35,5 +36,10 @@ router.delete(
   authMiddleware,
   deleteAddress,
 );
-
+router.get(
+  "/users/:userId/addresses",
+  authMiddleware,
+  authorizeRoles("admin"),
+  getUserAddressesForAdmin
+);
 export default router;

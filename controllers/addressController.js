@@ -394,3 +394,29 @@ export const deleteAddress = async (
     });
   }
 };
+
+export const getUserAddressesForAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const addresses = await Address.find({
+      userId,
+      isDeleted: false,
+    }).sort({
+      isDefault: -1,
+      createdAt: -1,
+    });
+
+    return res.status(200).json({
+      success: true,
+      addresses,
+    });
+  } catch (error) {
+    console.error("Admin Get User Addresses Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch user addresses",
+    });
+  }
+};

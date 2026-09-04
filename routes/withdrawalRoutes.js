@@ -7,41 +7,32 @@ import {
 } from "../controllers/withdrawalController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import authorizeRoles from "../middleware/roleMiddleware.js";
 
-const router =
-  express.Router();
+const router = express.Router();
 
-
-// =====================================
-// SELLER
-// =====================================
-
-// Create withdrawal
+// Seller: request a withdrawal.
 router.post(
   "/",
   authMiddleware,
+  authorizeRoles("seller"),
   createWithdrawal
 );
 
-
-// =====================================
-// ADMIN
-// =====================================
-
-// Process
+// Admin: process a pending withdrawal.
 router.put(
   "/:withdrawalId/process",
   authMiddleware,
+  authorizeRoles("admin"),
   processWithdrawal
 );
 
-
-// Reject
+// Admin: reject a pending withdrawal.
 router.put(
   "/:withdrawalId/reject",
   authMiddleware,
+  authorizeRoles("admin"),
   rejectWithdrawal
 );
-
 
 export default router;

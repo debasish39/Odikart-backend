@@ -2,10 +2,6 @@ import mongoose from "mongoose";
 
 const walletTransactionSchema = new mongoose.Schema(
   {
-    // =====================================
-    // SELLER
-    // =====================================
-
     sellerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -20,13 +16,8 @@ const walletTransactionSchema = new mongoose.Schema(
       index: true,
     },
 
-    // =====================================
-    // TRANSACTION TYPE
-    // =====================================
-
     type: {
       type: String,
-
       enum: [
         "SALE",
         "REFUND",
@@ -35,29 +26,15 @@ const walletTransactionSchema = new mongoose.Schema(
         "ADJUSTMENT",
         "REVERSAL",
       ],
-
       required: true,
       index: true,
     },
 
-    // =====================================
-    // CREDIT / DEBIT
-    // =====================================
-
     direction: {
       type: String,
-
-      enum: [
-        "CREDIT",
-        "DEBIT",
-      ],
-
+      enum: ["CREDIT", "DEBIT"],
       required: true,
     },
-
-    // =====================================
-    // SALE INFORMATION
-    // =====================================
 
     grossAmount: {
       type: Number,
@@ -71,19 +48,11 @@ const walletTransactionSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // =====================================
-    // TRANSACTION AMOUNT
-    // =====================================
-
     amount: {
       type: Number,
       required: true,
       min: 0,
     },
-
-    // =====================================
-    // BALANCE SNAPSHOT
-    // =====================================
 
     balanceBefore: {
       type: Number,
@@ -97,20 +66,12 @@ const walletTransactionSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // =====================================
-    // ORDER
-    // =====================================
-
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
       default: null,
       index: true,
     },
-
-    // =====================================
-    // WITHDRAWAL
-    // =====================================
 
     withdrawalId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -119,21 +80,9 @@ const walletTransactionSchema = new mongoose.Schema(
       index: true,
     },
 
-    // =====================================
-    // PAYMENT PROVIDER
-    // =====================================
-
     provider: {
       type: String,
-
-      enum: [
-        "INTERNAL",
-        "RAZORPAY",
-        "CASHFREE",
-        "STRIPE",
-        "OTHER",
-      ],
-
+      enum: ["INTERNAL", "RAZORPAY", "CASHFREE", "STRIPE", "OTHER"],
       default: "INTERNAL",
     },
 
@@ -141,27 +90,20 @@ const walletTransactionSchema = new mongoose.Schema(
       type: String,
       default: "",
       index: true,
+      trim: true,
     },
-
-    // =====================================
-    // IDEMPOTENCY
-    // =====================================
 
     idempotencyKey: {
       type: String,
-      default: "",
+      default: undefined,
       unique: true,
       sparse: true,
       index: true,
+      trim: true,
     },
-
-    // =====================================
-    // STATUS
-    // =====================================
 
     status: {
       type: String,
-
       enum: [
         "PENDING",
         "PROCESSING",
@@ -170,44 +112,32 @@ const walletTransactionSchema = new mongoose.Schema(
         "CANCELLED",
         "REVERSED",
       ],
-
       default: "COMPLETED",
       index: true,
     },
 
-    // =====================================
-    // CREATED BY
-    // =====================================
-
     createdBy: {
       type: String,
-
-      enum: [
-        "SELLER",
-        "ADMIN",
-        "SYSTEM",
-      ],
-
+      enum: ["SELLER", "ADMIN", "SYSTEM"],
       default: "SYSTEM",
     },
-
-    // =====================================
-    // DESCRIPTION
-    // =====================================
 
     description: {
       type: String,
       default: "",
+      trim: true,
     },
 
     failureReason: {
       type: String,
       default: "",
+      trim: true,
     },
 
     note: {
       type: String,
       default: "",
+      trim: true,
     },
 
     processedAt: {
@@ -215,57 +145,21 @@ const walletTransactionSchema = new mongoose.Schema(
       default: null,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-
-// =====================================
-// SALE DUPLICATE PROTECTION
-// =====================================
-
 walletTransactionSchema.index(
-  {
-    sellerId: 1,
-    orderId: 1,
-    type: 1,
-  },
+  { sellerId: 1, orderId: 1, type: 1 },
   {
     unique: true,
-
     partialFilterExpression: {
       type: "SALE",
-      orderId: {
-        $exists: true,
-        $ne: null,
-      },
+      orderId: { $exists: true, $ne: null },
     },
   }
 );
 
+walletTransactionSchema.index({ sellerId: 1, createdAt: -1 });
+walletTransactionSchema.index({ withdrawalId: 1, createdAt: -1 });
 
-// =====================================
-// SELLER HISTORY
-// =====================================
-
-walletTransactionSchema.index({
-  sellerId: 1,
-  createdAt: -1,
-});
-
-
-// =====================================
-// WITHDRAWAL HISTORY
-// =====================================
-
-walletTransactionSchema.index({
-  withdrawalId: 1,
-  createdAt: -1,
-});
-
-
-export default mongoose.model(
-  "WalletTransaction",
-  walletTransactionSchema
-);
+export default mongoose.model("WalletTransaction", walletTransactionSchema);

@@ -217,15 +217,12 @@ export const getSubCategories = async (req, res) => {
 
 export const getCategoryTree = async (req, res) => {
   try {
-    const categories = await Category.find({
-      isActive: true,
-    })
-      .sort({
-        displayOrder: 1,
-        name: 1,
-      })
-      .lean();
-
+   const categories = await Category.find()
+  .sort({
+    displayOrder: 1,
+    createdAt: -1,
+  })
+  .lean();
     const parents = categories.filter(
       (category) =>
         !category.parentCategory

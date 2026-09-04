@@ -1,188 +1,322 @@
 import mongoose from "mongoose";
 
 const courierSchema = new mongoose.Schema(
-{
-  /* =====================================
-     BASIC INFORMATION
-  ===================================== */
-
-  name: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-  },
-
-  code: {
-    type: String,
-    required: true,
-    unique: true,
-    uppercase: true,
-    trim: true,
-  },
-
-  logo: {
-    type: String,
-    default: "",
-  },
-
-  website: {
-    type: String,
-    default: "",
-  },
-
-  trackingUrl: {
-    type: String,
-    default: "",
-  },
-
-  customerCareNumber: {
-    type: String,
-    default: "",
-  },
-
-  email: {
-    type: String,
-    default: "",
-    lowercase: true,
-  },
-
-  /* =====================================
-     SHIPPING DETAILS
-  ===================================== */
-
-  estimatedDeliveryDays: {
-    type: Number,
-    default: 5,
-  },
-
-  supportsCOD: {
-    type: Boolean,
-    default: true,
-  },
-
-  supportsReturn: {
-    type: Boolean,
-    default: true,
-  },
-
-  supportsInternational: {
-    type: Boolean,
-    default: false,
-  },
-
-  /* =====================================
-     STATUS
-  ===================================== */
-
-  isActive: {
-    type: Boolean,
-    default: true,
-  },
-documents: {
-
-  agreement: {
-    type: String,
-    default: "",
-  },
-
-  gstCertificate: {
-    type: String,
-    default: "",
-  },
-
-  panCard: {
-    type: String,
-    default: "",
-  },
-
-  companyRegistrationCertificate: {
-    type: String,
-    default: "",
-  },
-
-  tradeLicense: {
-    type: String,
-    default: "",
-  },
-
-  msmeCertificate: {
-    type: String,
-    default: "",
-  },
-
-  insuranceCertificate: {
-    type: String,
-    default: "",
-  },
-
-  addressProof: {
-    type: String,
-    default: "",
-  },
-
-  cancelledCheque: {
-    type: String,
-    default: "",
-  },
-
-  bankVerificationLetter: {
-    type: String,
-    default: "",
-  },
-
-},
-verification: {
-
-  verified: {
-    type: Boolean,
-    default: false,
-  },
-
-  verifiedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    default: null,
-  },
-
-  verifiedAt: {
-    type: Date,
-    default: null,
-  },
-contactPerson: {
-
-  name: String,
-
-  designation: String,
-
-  phone: String,
-
-  email: String,
-
-},
-bankDetails: {
-
-  accountHolderName: String,
-
-  bankName: String,
-
-  accountNumber: String,
-
-  ifscCode: String,
-
-  upiId: String,
-
-},
-serviceAreas: [
   {
-    type: String,
-  }
-],
-},
+    /* =====================================================
+       BASIC DETAILS
+    ===================================================== */
 
-},
-{
-  timestamps: true,
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100,
+    },
+
+    phone: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 20,
+    },
+
+    photo: {
+      type: String,
+      default: "",
+    },
+
+    /* =====================================================
+       VEHICLE
+    ===================================================== */
+
+    vehicleType: {
+      type: String,
+      enum: [
+        "Bike",
+        "Scooter",
+        "Cycle",
+        "Auto",
+        "Car",
+        "Van",
+        "Other",
+      ],
+      default: "Bike",
+    },
+
+    vehicleNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    /* =====================================================
+       SERVICE AREA
+    ===================================================== */
+
+    serviceAreas: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+
+    estimatedDeliveryMinutes: {
+      type: Number,
+      default: 30,
+      min: 1,
+    },
+
+    /* =====================================================
+       IDENTITY / VERIFICATION DOCUMENTS
+    ===================================================== */
+
+    documents: {
+      /* ---------------------------------------------------
+         AADHAAR
+      --------------------------------------------------- */
+
+      aadhaar: {
+        documentUrl: {
+          type: String,
+          default: "",
+        },
+
+        documentNumber: {
+          type: String,
+          default: "",
+          trim: true,
+        },
+
+        uploadedAt: {
+          type: Date,
+          default: null,
+        },
+
+        verified: {
+          type: Boolean,
+          default: false,
+        },
+      },
+
+      /* ---------------------------------------------------
+         DRIVING LICENCE
+      --------------------------------------------------- */
+
+      drivingLicense: {
+        documentUrl: {
+          type: String,
+          default: "",
+        },
+
+        documentNumber: {
+          type: String,
+          default: "",
+          trim: true,
+          uppercase: true,
+        },
+
+        uploadedAt: {
+          type: Date,
+          default: null,
+        },
+
+        verified: {
+          type: Boolean,
+          default: false,
+        },
+      },
+    },
+
+    /* =====================================================
+       VERIFICATION STATUS
+    ===================================================== */
+
+    verificationStatus: {
+      type: String,
+      enum: [
+        "pending",
+        "under_review",
+        "verified",
+        "rejected",
+      ],
+      default: "pending",
+    },
+
+    verifiedAt: {
+      type: Date,
+      default: null,
+    },
+
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    /* =====================================================
+       REJECTION
+    ===================================================== */
+
+    rejectionReason: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    /* =====================================================
+       VERIFICATION NOTES
+    ===================================================== */
+
+    verificationNote: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+
+    /* =====================================================
+       AVAILABILITY
+    ===================================================== */
+
+    status: {
+      type: String,
+      enum: [
+        "available",
+        "busy",
+        "offline",
+        "suspended",
+      ],
+      default: "offline",
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+
+    /* =====================================================
+       CUSTOMER PRIVACY
+    ===================================================== */
+
+    showPhoneToCustomer: {
+      type: Boolean,
+      default: false,
+    },
+
+    /* =====================================================
+       LIVE LOCATION
+    ===================================================== */
+
+    currentLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+
+      coordinates: {
+        type: [Number],
+        default: [0, 0],
+      },
+    },
+
+    locationUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+
+    isLocationSharing: {
+      type: Boolean,
+      default: false,
+    },
+
+    /* =====================================================
+       DELIVERY STATISTICS
+    ===================================================== */
+
+    totalDeliveries: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    successfulDeliveries: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    rating: {
+      type: Number,
+      default: 5,
+      min: 0,
+      max: 5,
+    },
+
+    /* =====================================================
+       ADMIN
+    ===================================================== */
+
+    joinedAt: {
+      type: Date,
+      default: Date.now,
+    },
+
+    adminNote: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+  },
+
+  {
+    timestamps: true,
+  }
+);
+
+
+/* =========================================================
+   GEO INDEX
+========================================================= */
+
+courierSchema.index({
+  currentLocation: "2dsphere",
 });
 
-export default mongoose.model("Courier", courierSchema);
+
+/* =========================================================
+   VERIFICATION INDEX
+========================================================= */
+
+courierSchema.index({
+  verificationStatus: 1,
+});
+
+
+courierSchema.index({
+  status: 1,
+});
+
+
+/* =========================================================
+   MODEL
+========================================================= */
+
+export default mongoose.model(
+  "Courier",
+  courierSchema
+);

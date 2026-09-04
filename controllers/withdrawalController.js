@@ -1,11 +1,26 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
 import Withdrawal from "../models/Withdrawal.js";
 import Wallet from "../models/Wallet.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 
+const MIN_WITHDRAWAL = 100;
+const MAX_WITHDRAWAL = 100000;
+
+const maskAccountNumber = (value = "") =>
+  value.length > 4 ? `******${value.slice(-4)}` : "******";
+
+const normalizeAmount = (value) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round(amount * 100) / 100 : NaN;
+};
+
+const isValidObjectId = (value) =>
+  mongoose.Types.ObjectId.isValid(value);
+
 export const createWithdrawal = async (req, res) => {
   try {
-    const sellerId = req.user._id;
+    const sellerId = req.user?._id;
 
     const {
       amount,
@@ -13,53 +28,21 @@ export const createWithdrawal = async (req, res) => {
       accountNumber,
       ifsc,
       bankName,
-      idempotencyKey: clientIdempotencyKey,
+      idempotencyKey: clientKey,
     } = req.body;
 
-    console.log("=================================");
-    console.log("💸 CREATE WITHDRAWAL");
-    console.log("SELLER:", sellerId);
-    console.log("AMOUNT:", amount);
-    console.log("=================================");
-
-    // =====================================
-    // VALIDATE AMOUNT
-    // =====================================
-
-    const withdrawalAmount = Number(amount);
-
-    const MIN_WITHDRAWAL = 100;
-    const MAX_WITHDRAWAL = 100000;
+    const withdrawalAmount = normalizeAmount(amount);
 
     if (
       !Number.isFinite(withdrawalAmount) ||
-      withdrawalAmount <= 0
+      withdrawalAmount < MIN_WITHDRAWAL ||
+      withdrawalAmount > MAX_WITHDRAWAL
     ) {
       return res.status(400).json({
         success: false,
-        message: "Invalid withdrawal amount",
+        message: `Withdrawal amount must be between ₹${MIN_WITHDRAWAL} and ₹${MAX_WITHDRAWAL}`,
       });
     }
-
-    if (withdrawalAmount < MIN_WITHDRAWAL) {
-      return res.status(400).json({
-        success: false,
-        message:
-          `Minimum withdrawal is ₹${MIN_WITHDRAWAL}`,
-      });
-    }
-
-    if (withdrawalAmount > MAX_WITHDRAWAL) {
-      return res.status(400).json({
-        success: false,
-        message:
-          `Maximum withdrawal is ₹${MAX_WITHDRAWAL}`,
-      });
-    }
-
-    // =====================================
-    // BANK DETAILS
-    // =====================================
 
     if (
       !accountHolderName?.trim() ||
@@ -68,363 +51,186 @@ export const createWithdrawal = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Complete bank details are required",
+        message: "Complete bank details are required",
       });
     }
 
-    const normalizedIFSC =
-      ifsc.trim().toUpperCase();
+    const normalizedIFSC = ifsc.trim().toUpperCase();
 
-    if (
-      !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(
-        normalizedIFSC
-      )
-    ) {
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalizedIFSC)) {
       return res.status(400).json({
         success: false,
         message: "Invalid IFSC code",
       });
     }
 
-    // =====================================
-    // IDEMPOTENCY KEY
-    // =====================================
-
-    /*
-      If frontend sends a key, use it.
-
-      Otherwise generate one on backend.
-
-      NEVER use:
-        idempotencyKey: ""
-    */
-
     const idempotencyKey =
-      clientIdempotencyKey?.trim() ||
+      clientKey?.trim() ||
       `WD-${sellerId}-${crypto.randomUUID()}`;
 
-    console.log(
-      "🔑 Idempotency Key:",
-      idempotencyKey
-    );
+    const existingTransaction = await WalletTransaction.findOne({
+      sellerId,
+      idempotencyKey,
+    }).lean();
 
-    // =====================================
-    // CHECK DUPLICATE REQUEST
-    // =====================================
-
-    const existingTransaction =
-      await WalletTransaction.findOne({
-        sellerId,
-        idempotencyKey,
-      });
-
-    if (existingTransaction) {
-      console.log(
-        "⚠️ DUPLICATE WITHDRAWAL REQUEST"
-      );
-
-      const existingWithdrawal =
-        await Withdrawal.findById(
-          existingTransaction.withdrawalId
-        );
+    if (existingTransaction?.withdrawalId) {
+      const withdrawal = await Withdrawal.findById(
+        existingTransaction.withdrawalId
+      ).lean();
 
       return res.status(200).json({
         success: true,
         duplicate: true,
-        message:
-          "Existing withdrawal returned",
-        withdrawal:
-          existingWithdrawal,
-        transaction:
-          existingTransaction,
+        message: "Existing withdrawal returned",
+        withdrawal,
+        transaction: existingTransaction,
       });
     }
 
-    // =====================================
-    // CHECK EXISTING WITHDRAWALS
-    // =====================================
-
-    const pendingWithdrawal =
-      await Withdrawal.findOne({
-        sellerId,
-        status: {
-          $in: [
-            "PENDING",
-            "PROCESSING",
-          ],
-        },
-      });
+    const pendingWithdrawal = await Withdrawal.findOne({
+      sellerId,
+      status: { $in: ["PENDING", "PROCESSING"] },
+    }).lean();
 
     if (pendingWithdrawal) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message:
-          "You already have a withdrawal being processed",
-        withdrawalId:
-          pendingWithdrawal._id,
+        message: "You already have a withdrawal being processed",
+        withdrawalId: pendingWithdrawal._id,
       });
     }
 
-    // =====================================
-    // FIND WALLET
-    // =====================================
-
-    const wallet =
-      await Wallet.findOne({
+    // Atomic reservation: only deduct if enough available balance exists.
+    const wallet = await Wallet.findOneAndUpdate(
+      {
         sellerId,
-      });
+        isActive: true,
+        availableBalance: { $gte: withdrawalAmount },
+      },
+      {
+        $inc: {
+          availableBalance: -withdrawalAmount,
+          pendingBalance: withdrawalAmount,
+        },
+      },
+      { new: false }
+    );
 
     if (!wallet) {
-      return res.status(404).json({
-        success: false,
-        message: "Wallet not found",
-      });
-    }
-
-    // =====================================
-    // CHECK WALLET
-    // =====================================
-
-    if (!wallet.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Wallet is inactive",
-      });
-    }
-
-    // =====================================
-    // CHECK BALANCE
-    // =====================================
-
-    if (
-      withdrawalAmount >
-      Number(wallet.availableBalance || 0)
-    ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Insufficient wallet balance",
-        availableBalance:
-          wallet.availableBalance,
+        message: "Insufficient wallet balance or inactive wallet",
       });
     }
 
-    // =====================================
-    // BALANCE BEFORE
-    // =====================================
+    const balanceBefore = Number(wallet.availableBalance);
+    const availableAfter = balanceBefore - withdrawalAmount;
 
-    const balanceBefore =
-      Number(wallet.availableBalance || 0);
+    let withdrawal;
+    let transaction;
 
-    // =====================================
-    // RESERVE MONEY
-    // =====================================
-
-    wallet.availableBalance =
-      balanceBefore -
-      withdrawalAmount;
-
-    wallet.pendingBalance =
-      Number(
-        wallet.pendingBalance || 0
-      ) + withdrawalAmount;
-
-    await wallet.save();
-
-    console.log(
-      "💰 MONEY RESERVED"
-    );
-
-    console.log(
-      "BALANCE BEFORE:",
-      balanceBefore
-    );
-
-    console.log(
-      "AVAILABLE AFTER:",
-      wallet.availableBalance
-    );
-
-    console.log(
-      "PENDING AFTER:",
-      wallet.pendingBalance
-    );
-
-    // =====================================
-    // CREATE WITHDRAWAL
-    // =====================================
-
-    const withdrawal =
-      await Withdrawal.create({
+    try {
+      withdrawal = await Withdrawal.create({
         sellerId,
-
-        amount:
-          withdrawalAmount,
-
-        status:
-          "PENDING",
-
+        amount: withdrawalAmount,
+        status: "PENDING",
         bankAccount: {
-          accountHolderName:
-            accountHolderName.trim(),
-
-          accountNumber:
-            accountNumber.trim(),
-
-          ifsc:
-            normalizedIFSC,
-
-          bankName:
-            bankName?.trim() || "",
+          accountHolderName: accountHolderName.trim(),
+          accountNumber: accountNumber.trim(),
+          ifsc: normalizedIFSC,
+          bankName: bankName?.trim() || "",
         },
-
-        provider:
-          "INTERNAL",
+        provider: "INTERNAL",
       });
 
-    // =====================================
-    // CREATE WALLET TRANSACTION
-    // =====================================
-
-    const transaction =
-      await WalletTransaction.create({
+      transaction = await WalletTransaction.create({
         sellerId,
-
-        walletId:
-          wallet._id,
-
-        type:
-          "WITHDRAWAL",
-
-        direction:
-          "DEBIT",
-
-        amount:
-          withdrawalAmount,
-
-        balanceBefore:
-
-          balanceBefore,
-
-        balanceAfter:
-
-          wallet.availableBalance,
-
-        withdrawalId:
-          withdrawal._id,
-
-        provider:
-          "INTERNAL",
-
+        walletId: wallet._id,
+        type: "WITHDRAWAL",
+        direction: "DEBIT",
+        amount: withdrawalAmount,
+        balanceBefore,
+        balanceAfter: availableAfter,
+        withdrawalId: withdrawal._id,
+        provider: "INTERNAL",
         idempotencyKey,
-
-        status:
-          "PENDING",
-
-        createdBy:
-          "SELLER",
-
-        description:
-          `Withdrawal request ₹${withdrawalAmount}`,
+        status: "PENDING",
+        createdBy: "SELLER",
+        description: `Withdrawal request ₹${withdrawalAmount}`,
       });
+    } catch (createError) {
+      // Compensating transaction if document creation fails.
+      await Wallet.updateOne(
+        { _id: wallet._id },
+        {
+          $inc: {
+            availableBalance: withdrawalAmount,
+            pendingBalance: -withdrawalAmount,
+          },
+        }
+      );
 
-    console.log(
-      "✅ WITHDRAWAL CREATED:",
-      withdrawal._id
-    );
-
-    console.log(
-      "✅ TRANSACTION CREATED:",
-      transaction._id
-    );
+      throw createError;
+    }
 
     return res.status(201).json({
       success: true,
-
-      message:
-        "Withdrawal request submitted",
-
+      message: "Withdrawal request submitted",
       withdrawal: {
-        _id:
-          withdrawal._id,
-
-        amount:
-          withdrawal.amount,
-
-        status:
-          withdrawal.status,
-
+        _id: withdrawal._id,
+        amount: withdrawal.amount,
+        status: withdrawal.status,
         bankAccount: {
-          accountHolderName:
-            withdrawal.bankAccount
-              .accountHolderName,
-
-          accountNumber:
-            `******${withdrawal.bankAccount.accountNumber.slice(-4)}`,
-
-          ifsc:
-            withdrawal.bankAccount.ifsc,
-
-          bankName:
-            withdrawal.bankAccount.bankName,
+          accountHolderName: withdrawal.bankAccount.accountHolderName,
+          accountNumber: maskAccountNumber(
+            withdrawal.bankAccount.accountNumber
+          ),
+          ifsc: withdrawal.bankAccount.ifsc,
+          bankName: withdrawal.bankAccount.bankName,
         },
       },
-
       transaction,
-
       wallet: {
-        availableBalance:
-          wallet.availableBalance,
-
+        availableBalance: availableAfter,
         pendingBalance:
-          wallet.pendingBalance,
+          Number(wallet.pendingBalance) + withdrawalAmount,
       },
-
       idempotencyKey,
     });
-
   } catch (error) {
-    console.error(
-      "❌ CREATE WITHDRAWAL ERROR:",
-      error
-    );
-
-    /*
-      Duplicate-key protection.
-
-      This catches a race condition where
-      two requests arrive at almost exactly
-      the same time.
-    */
+    console.error("Create Withdrawal Error:", error);
 
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message:
-          "Duplicate withdrawal request",
-        error:
-          error.keyValue,
+        message: "Duplicate withdrawal request",
       });
     }
 
     return res.status(500).json({
       success: false,
-      message:
-        error.message,
+      message: "Failed to create withdrawal request",
     });
   }
 };
-export const processWithdrawal = async (
-  req,
-  res
-) => {
 
+export const processWithdrawal = async (req, res) => {
   try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can process withdrawals",
+      });
+    }
 
-    const {
-      withdrawalId,
-    } = req.params;
+    const { withdrawalId } = req.params;
+
+    if (!isValidObjectId(withdrawalId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid withdrawal ID",
+      });
+    }
 
     const {
       provider = "INTERNAL",
@@ -432,638 +238,248 @@ export const processWithdrawal = async (
       adminNote = "",
     } = req.body;
 
-    console.log("=================================");
-    console.log("💸 PROCESS WITHDRAWAL");
-    console.log("=================================");
-    console.log(
-      "Withdrawal:",
-      withdrawalId
+    const withdrawal = await Withdrawal.findOneAndUpdate(
+      { _id: withdrawalId, status: "PENDING" },
+      {
+        $set: {
+          status: "PROCESSING",
+          processedBy: req.user._id,
+          provider,
+          adminNote: adminNote.trim(),
+          processedAt: new Date(),
+        },
+      },
+      { new: true }
     );
-    console.log(
-      "Admin:",
-      req.user._id
-    );
-
-    // =====================================
-    // ADMIN CHECK
-    // =====================================
-
-    if (
-      req.user.role !== "admin"
-    ) {
-
-      return res.status(403).json({
-        success: false,
-        message:
-          "Only admin can process withdrawals",
-      });
-
-    }
-
-    // =====================================
-    // FIND WITHDRAWAL
-    // =====================================
-
-    const withdrawal =
-      await Withdrawal.findById(
-        withdrawalId
-      );
 
     if (!withdrawal) {
-
-      return res.status(404).json({
+      return res.status(409).json({
         success: false,
-        message:
-          "Withdrawal not found",
+        message: "Withdrawal not found or is no longer pending",
       });
-
     }
 
-    console.log(
-      "Withdrawal Status:",
-      withdrawal.status
-    );
+    const wallet = await Wallet.findOne({
+      sellerId: withdrawal.sellerId,
+    });
 
-    // =====================================
-    // STATUS CHECK
-    // =====================================
+    if (!wallet || wallet.pendingBalance < withdrawal.amount) {
+      await Withdrawal.updateOne(
+        { _id: withdrawal._id, status: "PROCESSING" },
+        {
+          $set: {
+            status: "FAILED",
+            failureReason: "Wallet pending balance is insufficient",
+            processedAt: new Date(),
+          },
+        }
+      );
 
-    if (
-      withdrawal.status !==
-      "PENDING"
-    ) {
-
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message:
-          `Cannot process withdrawal in ${withdrawal.status} state`,
+        message: "Wallet pending balance is insufficient",
       });
-
     }
-
-    // =====================================
-    // FIND WALLET
-    // =====================================
-
-    const wallet =
-      await Wallet.findOne({
-        sellerId:
-          withdrawal.sellerId,
-      });
-
-    if (!wallet) {
-
-      return res.status(404).json({
-        success: false,
-        message:
-          "Seller wallet not found",
-      });
-
-    }
-
-    // =====================================
-    // CHECK PENDING BALANCE
-    // =====================================
-
-    if (
-      wallet.pendingBalance <
-      withdrawal.amount
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "Wallet pending balance is insufficient",
-
-      });
-
-    }
-
-    // =====================================
-    // MOVE TO PROCESSING
-    // =====================================
-
-    withdrawal.status =
-      "PROCESSING";
-
-    withdrawal.processedBy =
-      req.user._id;
-
-    withdrawal.provider =
-      provider;
-
-    withdrawal.adminNote =
-      adminNote;
-
-    await withdrawal.save();
-
-    console.log(
-      "🟡 WITHDRAWAL → PROCESSING"
-    );
-
-    // =====================================
-    // PAYOUT PROVIDER
-    // =====================================
 
     /*
-      DEVELOPMENT MODE
-
-      Replace this section later with:
-
-      Razorpay
-      Cashfree
-      Stripe
-      Bank Payout API
+      DEVELOPMENT PAYOUT ADAPTER.
+      Replace this block with Razorpay/Cashfree/bank payout integration.
     */
-
     const payoutResult = {
-
       success: true,
-
-      payoutId:
-        providerPayoutId ||
-        `PAYOUT-${Date.now()}`,
-
+      payoutId: providerPayoutId || `PAYOUT-${Date.now()}`,
     };
 
-    // =====================================
-    // PAYOUT FAILED
-    // =====================================
-
-    if (
-      !payoutResult.success
-    ) {
-
-      wallet.pendingBalance =
-        Number(
-          wallet.pendingBalance
-        ) -
-        Number(
-          withdrawal.amount
-        );
-
-      wallet.availableBalance =
-        Number(
-          wallet.availableBalance
-        ) +
-        Number(
-          withdrawal.amount
-        );
-
-      await wallet.save();
-
-      withdrawal.status =
-        "FAILED";
-
-      withdrawal.failureReason =
-        "Payout provider failed";
-
-      withdrawal.processedAt =
-        new Date();
-
-      await withdrawal.save();
-
-      // -------------------------------------
-      // TRANSACTION
-      // -------------------------------------
-
-      await WalletTransaction.create({
-
-        sellerId:
-          withdrawal.sellerId,
-
-        walletId:
-          wallet._id,
-
-        type:
-          "REVERSAL",
-
-        direction:
-          "CREDIT",
-
-        amount:
-          withdrawal.amount,
-
-        balanceBefore:
-          wallet.availableBalance -
-          withdrawal.amount,
-
-        balanceAfter:
-          wallet.availableBalance,
-
-        withdrawalId:
-          withdrawal._id,
-
-        provider,
-
-        status:
-          "COMPLETED",
-
-        createdBy:
-          "SYSTEM",
-
-        description:
-          `Withdrawal reversal ₹${withdrawal.amount}`,
-
-        failureReason:
-          "Payout failed",
-
-        processedAt:
-          new Date(),
-      });
-
-      return res.status(400).json({
-
+    if (!payoutResult.success) {
+      return res.status(502).json({
         success: false,
-
-        message:
-          "Payout failed and amount returned",
-
-        withdrawal,
-
-        wallet,
-
+        message: "Payout provider failed",
       });
-
     }
 
-    // =====================================
-    // PAYOUT SUCCESS
-    // =====================================
+    const now = new Date();
 
-    const balanceBefore =
-      wallet.availableBalance;
-
-    // =====================================
-    // RELEASE PENDING
-    // =====================================
-
-    wallet.pendingBalance =
-      Number(
-        wallet.pendingBalance
-      ) -
-      Number(
-        withdrawal.amount
-      );
-
-    wallet.totalWithdrawn =
-      Number(
-        wallet.totalWithdrawn || 0
-      ) +
-      Number(
-        withdrawal.amount
-      );
-
-    await wallet.save();
-
-    console.log(
-      "💰 WALLET SETTLED"
+    // Release the reserved amount from pending balance.
+    const updatedWallet = await Wallet.findOneAndUpdate(
+      {
+        _id: wallet._id,
+        pendingBalance: { $gte: withdrawal.amount },
+      },
+      {
+        $inc: {
+          pendingBalance: -withdrawal.amount,
+          totalWithdrawn: withdrawal.amount,
+        },
+      },
+      { new: true }
     );
 
-    console.log(
-      "AVAILABLE:",
-      wallet.availableBalance
-    );
-
-    console.log(
-      "PENDING:",
-      wallet.pendingBalance
-    );
-
-    console.log(
-      "TOTAL WITHDRAWN:",
-      wallet.totalWithdrawn
-    );
-
-    // =====================================
-    // UPDATE WITHDRAWAL
-    // =====================================
-
-    const referenceId =
-      payoutResult.payoutId;
-
-    withdrawal.status =
-      "COMPLETED";
-
-    withdrawal.providerPayoutId =
-      payoutResult.payoutId;
-
-    withdrawal.referenceId =
-      referenceId;
-
-    withdrawal.processedBy =
-      req.user._id;
-
-    withdrawal.processedAt =
-      new Date();
-
-    withdrawal.completedAt =
-      new Date();
-
-    await withdrawal.save();
-
-    // =====================================
-    // UPDATE ORIGINAL TRANSACTION
-    // =====================================
-
-    const transaction =
-      await WalletTransaction.findOne({
-
-        withdrawalId:
-          withdrawal._id,
-
-        type:
-          "WITHDRAWAL",
-
+    if (!updatedWallet) {
+      return res.status(409).json({
+        success: false,
+        message: "Unable to settle wallet balance safely",
       });
-
-    if (!transaction) {
-
-      console.warn(
-        "⚠️ Withdrawal transaction not found"
-      );
-
-    } else {
-
-      transaction.status =
-        "COMPLETED";
-
-      transaction.provider =
-        provider;
-
-      transaction.referenceId =
-        referenceId;
-
-      transaction.processedAt =
-        new Date();
-
-      transaction.balanceAfter =
-        wallet.availableBalance;
-
-      await transaction.save();
-
     }
 
-    console.log(
-      "================================="
+    const completedWithdrawal = await Withdrawal.findOneAndUpdate(
+      { _id: withdrawal._id, status: "PROCESSING" },
+      {
+        $set: {
+          status: "COMPLETED",
+          providerPayoutId: payoutResult.payoutId,
+          referenceId: payoutResult.payoutId,
+          processedBy: req.user._id,
+          processedAt: now,
+          completedAt: now,
+        },
+      },
+      { new: true }
     );
 
-    console.log(
-      "✅ WITHDRAWAL COMPLETED"
-    );
-
-    console.log(
-      "================================="
+    const transaction = await WalletTransaction.findOneAndUpdate(
+      {
+        withdrawalId: withdrawal._id,
+        type: "WITHDRAWAL",
+      },
+      {
+        $set: {
+          status: "COMPLETED",
+          provider,
+          referenceId: payoutResult.payoutId,
+          processedAt: now,
+          balanceAfter: updatedWallet.availableBalance,
+        },
+      },
+      { new: true }
     );
 
     return res.status(200).json({
-
       success: true,
-
-      message:
-        "Withdrawal completed successfully",
-
-      withdrawal,
-
-      wallet: {
-
-        availableBalance:
-          wallet.availableBalance,
-
-        pendingBalance:
-          wallet.pendingBalance,
-
-        totalWithdrawn:
-          wallet.totalWithdrawn,
-
-      },
-
+      message: "Withdrawal completed successfully",
+      withdrawal: completedWithdrawal,
       transaction,
-
-      referenceId,
-
+      wallet: {
+        availableBalance: updatedWallet.availableBalance,
+        pendingBalance: updatedWallet.pendingBalance,
+        totalWithdrawn: updatedWallet.totalWithdrawn,
+      },
+      referenceId: payoutResult.payoutId,
     });
-
   } catch (error) {
-
-    console.error(
-      "❌ PROCESS WITHDRAWAL ERROR:",
-      error
-    );
+    console.error("Process Withdrawal Error:", error);
 
     return res.status(500).json({
-
       success: false,
-
-      message:
-        error.message,
-
+      message: "Failed to process withdrawal",
     });
-
   }
-
 };
-export const rejectWithdrawal = async (
-  req,
-  res
-) => {
 
+export const rejectWithdrawal = async (req, res) => {
   try {
-
-    if (
-      req.user.role !== "admin"
-    ) {
-
+    if (req.user?.role !== "admin") {
       return res.status(403).json({
         success: false,
-        message:
-          "Only admin can reject withdrawals",
+        message: "Only admin can reject withdrawals",
       });
-
     }
 
-    const {
-      withdrawalId,
-    } = req.params;
+    const { withdrawalId } = req.params;
+    const reason = req.body?.reason?.trim();
 
-    const {
-      reason,
-    } = req.body;
+    if (!isValidObjectId(withdrawalId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid withdrawal ID",
+      });
+    }
 
     if (!reason) {
-
       return res.status(400).json({
         success: false,
-        message:
-          "Rejection reason is required",
+        message: "Rejection reason is required",
       });
-
     }
 
-    const withdrawal =
-      await Withdrawal.findById(
-        withdrawalId
-      );
+    // Claim the pending withdrawal first so two admins cannot reject it.
+    const withdrawal = await Withdrawal.findOneAndUpdate(
+      { _id: withdrawalId, status: "PENDING" },
+      {
+        $set: {
+          status: "REJECTED",
+          failureReason: reason,
+          processedBy: req.user._id,
+          processedAt: new Date(),
+          adminNote: reason,
+        },
+      },
+      { new: true }
+    );
 
     if (!withdrawal) {
-
-      return res.status(404).json({
+      return res.status(409).json({
         success: false,
-        message:
-          "Withdrawal not found",
+        message: "Withdrawal not found or is no longer pending",
       });
-
     }
 
-    if (
-      withdrawal.status !==
-      "PENDING"
-    ) {
-
-      return res.status(400).json({
-        success: false,
-        message:
-          "Only pending withdrawals can be rejected",
-      });
-
-    }
-
-    const wallet =
-      await Wallet.findOne({
-        sellerId:
-          withdrawal.sellerId,
-      });
+    const wallet = await Wallet.findOneAndUpdate(
+      {
+        sellerId: withdrawal.sellerId,
+        pendingBalance: { $gte: withdrawal.amount },
+      },
+      {
+        $inc: {
+          pendingBalance: -withdrawal.amount,
+          availableBalance: withdrawal.amount,
+        },
+      },
+      { new: false }
+    );
 
     if (!wallet) {
-
-      return res.status(404).json({
+      return res.status(409).json({
         success: false,
-        message:
-          "Wallet not found",
+        message: "Unable to return withdrawal amount safely",
       });
-
     }
 
-    // =====================================
-    // RETURN MONEY
-    // =====================================
+    const balanceBefore = Number(wallet.availableBalance);
+    const balanceAfter = balanceBefore + withdrawal.amount;
 
-    wallet.pendingBalance -=
-      withdrawal.amount;
-
-    wallet.availableBalance +=
-      withdrawal.amount;
-
-    await wallet.save();
-
-    // =====================================
-    // UPDATE WITHDRAWAL
-    // =====================================
-
-    withdrawal.status =
-      "REJECTED";
-
-    withdrawal.failureReason =
-      reason;
-
-    withdrawal.processedBy =
-      req.user._id;
-
-    withdrawal.processedAt =
-      new Date();
-
-    withdrawal.adminNote =
-      reason;
-
-    await withdrawal.save();
-
-    // =====================================
-    // REVERSAL TRANSACTION
-    // =====================================
-
-    await WalletTransaction.create({
-
-      sellerId:
-        withdrawal.sellerId,
-
-      walletId:
-        wallet._id,
-
-      type:
-        "REVERSAL",
-
-      direction:
-        "CREDIT",
-
-      amount:
-        withdrawal.amount,
-
-      balanceBefore:
-        wallet.availableBalance -
-        withdrawal.amount,
-
-      balanceAfter:
-        wallet.availableBalance,
-
-      withdrawalId:
-        withdrawal._id,
-
-      provider:
-        "INTERNAL",
-
-      status:
-        "COMPLETED",
-
-      createdBy:
-        "ADMIN",
-
-      description:
-        `Withdrawal rejected: ${reason}`,
-
-      processedAt:
-        new Date(),
-
+    const reversal = await WalletTransaction.create({
+      sellerId: withdrawal.sellerId,
+      walletId: wallet._id,
+      type: "REVERSAL",
+      direction: "CREDIT",
+      amount: withdrawal.amount,
+      balanceBefore,
+      balanceAfter,
+      withdrawalId: withdrawal._id,
+      provider: "INTERNAL",
+      status: "COMPLETED",
+      createdBy: "ADMIN",
+      description: `Withdrawal rejected: ${reason}`,
+      processedAt: new Date(),
     });
 
     return res.status(200).json({
-
       success: true,
-
-      message:
-        "Withdrawal rejected and money returned",
-
+      message: "Withdrawal rejected and money returned",
       withdrawal,
-
+      reversal,
       wallet: {
-
-        availableBalance:
-          wallet.availableBalance,
-
+        availableBalance: balanceAfter,
         pendingBalance:
-          wallet.pendingBalance,
-
+          Number(wallet.pendingBalance) - withdrawal.amount,
       },
-
     });
-
   } catch (error) {
-
-    console.error(
-      "❌ REJECT WITHDRAWAL ERROR:",
-      error
-    );
+    console.error("Reject Withdrawal Error:", error);
 
     return res.status(500).json({
-
       success: false,
-
-      message:
-        error.message,
-
+      message: "Failed to reject withdrawal",
     });
-
   }
-
 };

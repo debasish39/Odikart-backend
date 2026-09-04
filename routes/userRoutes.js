@@ -23,6 +23,7 @@ import {
   completeSellerProfile,
   uploadSellerDocuments,
   switchMode,
+  getUserAddressesForAdmin
 
 } from "../controllers/userController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -134,5 +135,11 @@ router.put(
   "/active-mode",
   authMiddleware,
   switchMode
+);
+router.get(
+  "/users/:userId/addresses",
+  authMiddleware,
+  authorizeRoles("admin"),
+  getUserAddressesForAdmin
 );
 export default router;

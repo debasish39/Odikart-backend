@@ -11,7 +11,7 @@ import { sendEmail } from "../utils/sendEmail.js";
 import { sendWhatsApp } from "../utils/sendWhatsApp.js";
 import { generateOrderNumber } from "../utils/generateOrderNumber.js";
 import { creditSellerWallet } from "../utils/walletService.js";
-
+import { generateTrackingNumber } from "../utils/generateTrackingNumber.js";
 /* =========================================================
    CUSTOM ORDER VALIDATION ERROR
 ========================================================= */
@@ -124,6 +124,30 @@ const appendStatusHistory = (
     remark,
   });
 };
+
+
+/* =========================================================
+   COURIER VERIFICATION HELPERS
+========================================================= */
+
+const isCourierVerified = (courier) => {
+  return Boolean(
+    courier &&
+    courier.verificationStatus === "verified" &&
+    courier.isActive === true &&
+    courier.documents?.aadhaar?.documentUrl &&
+    courier.documents?.drivingLicense?.documentUrl &&
+    courier.documents?.aadhaar?.verified === true &&
+    courier.documents?.drivingLicense?.verified === true
+  );
+};
+
+const ACTIVE_COURIER_STATUSES = [
+  "Ready for Pickup",
+  "Shipped",
+  "In Transit",
+  "Out for Delivery",
+];
 
 
 /* =========================================================
@@ -1401,7 +1425,7 @@ export const getSingleOrder = async (
         path: "shipping.courier",
 
         select:
-          "name logo website trackingUrl customerCareNumber estimatedDeliveryDays",
+          "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
       })
       .populate({
         path: "items.productId",
@@ -1544,7 +1568,7 @@ export const trackOrder = async (
       })
         .populate(
           "shipping.courier",
-          "name logo website trackingUrl customerCareNumber estimatedDeliveryDays",
+          "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
         )
         .populate(
           "items.productId",
@@ -2374,6 +2398,27 @@ export const updateOrderStatus = async (
     ) {
       order.deliveredAt =
         new Date();
+
+      /*
+        Delivery completed:
+        release courier and stop live GPS.
+      */
+      if (order.shipping?.courier) {
+        await Courier.findByIdAndUpdate(
+          order.shipping.courier,
+          {
+            $set: {
+              status: "available",
+              isLocationSharing: false,
+              locationUpdatedAt: new Date(),
+            },
+            $inc: {
+              totalDeliveries: 1,
+              successfulDeliveries: 1,
+            },
+          },
+        );
+      }
     }
 
     if (
@@ -2386,6 +2431,22 @@ export const updateOrderStatus = async (
 
       order.cancelledBy =
         req.user.role;
+
+      /*
+        Cancelled delivery:
+        release courier and stop GPS.
+      */
+      if (order.shipping?.courier) {
+        await Courier.findByIdAndUpdate(
+          order.shipping.courier,
+          {
+            $set: {
+              status: "available",
+              isLocationSharing: false,
+            },
+          },
+        );
+      }
     }
 
     appendStatusHistory(
@@ -2447,125 +2508,343 @@ export const updateOrderStatus = async (
 
 /* =========================================================
    ASSIGN COURIER
+   ADMIN ONLY
 ========================================================= */
 
-export const assignCourier = async (
-  req,
-  res,
-) => {
+export const assignCourier = async (req, res) => {
   try {
-    const {
-      orderId,
-    } = req.params;
+    console.log("========================================");
+    console.log("🚚 ASSIGN COURIER CONTROLLER");
+    console.log("========================================");
 
-    const {
-      courierId,
-      trackingNumber,
-      estimatedDelivery,
-    } = req.body;
+    /* =====================================================
+       1. ADMIN CHECK
+    ===================================================== */
 
-    const order =
-      await Order.findById(
-        orderId,
-      );
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access required",
+      });
+    }
+
+    /* =====================================================
+       2. REQUEST DATA
+    ===================================================== */
+
+    const { orderId } = req.params;
+    const { courierId, estimatedDelivery } = req.body || {};
+
+    console.log("orderId:", orderId);
+    console.log("courierId:", courierId);
+    console.log("estimatedDelivery:", estimatedDelivery);
+
+    /* =====================================================
+       3. VALIDATE IDS
+    ===================================================== */
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID",
+      });
+    }
+
+    if (!courierId) {
+      return res.status(400).json({
+        success: false,
+        message: "Courier ID is required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(courierId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid courier ID",
+      });
+    }
+
+    /* =====================================================
+       4. FIND ORDER
+    ===================================================== */
+
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
-
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    if (order.status !== "Packed") {
+    console.log("Order:", order.orderNumber);
+    console.log("Order status:", order.status);
+
+    /* =====================================================
+       5. ORDER STATUS
+       Courier assignment is allowed only after packing.
+    ===================================================== */
+
+    if (order.status !== "Ready for Pickup") {
       return res.status(400).json({
         success: false,
-
+        code: "ORDER_NOT_READY_FOR_PICKUP",
         message:
-          "Order must be Packed before assigning courier",
+          `Courier can be assigned only when order status is "Ready for Pickup". Current status: ${order.status}`,
       });
     }
 
-    const courier =
-      await Courier.findById(
-        courierId,
-      );
+    /* =====================================================
+       6. FIND COURIER
+    ===================================================== */
+
+    const courier = await Courier.findById(courierId);
 
     if (!courier) {
       return res.status(404).json({
         success: false,
-
-        message:
-          "Courier not found",
+        message: "Courier not found",
       });
     }
 
-    if (!trackingNumber) {
+    console.log("Courier:", courier.name);
+    console.log("Courier status:", courier.status);
+    console.log(
+      "Courier verification:",
+      courier.verificationStatus
+    );
+
+    /* =====================================================
+       7. COURIER VALIDATION
+    ===================================================== */
+
+    if (courier.isActive !== true) {
       return res.status(400).json({
         success: false,
-
-        message:
-          "Tracking number is required",
+        code: "COURIER_INACTIVE",
+        message: "Courier is inactive",
       });
     }
+
+    if (courier.verificationStatus !== "verified") {
+      return res.status(400).json({
+        success: false,
+        code: "COURIER_NOT_VERIFIED",
+        message: "Courier is not verified",
+      });
+    }
+
+    if (courier.status === "suspended") {
+      return res.status(400).json({
+        success: false,
+        code: "COURIER_SUSPENDED",
+        message: "Courier is suspended",
+      });
+    }
+
+    if (courier.status !== "available") {
+      return res.status(400).json({
+        success: false,
+        code: "COURIER_NOT_AVAILABLE",
+        message:
+          `Courier is currently ${courier.status}. Only available couriers can be assigned.`,
+      });
+    }
+
+    /* =====================================================
+       8. ESTIMATED DELIVERY
+    ===================================================== */
+
+    let estimatedDate = null;
+
+    if (estimatedDelivery) {
+      const rawDate = String(estimatedDelivery).trim();
+
+      /*
+        Frontend normally sends YYYY-MM-DD.
+        Parse it as a local date so the displayed date does
+        not move backward because of UTC conversion.
+      */
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+        const [year, month, day] = rawDate
+          .split("-")
+          .map(Number);
+
+        estimatedDate = new Date(
+          year,
+          month - 1,
+          day,
+          23,
+          59,
+          59
+        );
+      } else {
+        estimatedDate = new Date(rawDate);
+      }
+
+      if (Number.isNaN(estimatedDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_ESTIMATED_DELIVERY",
+          message: "Invalid estimated delivery date",
+        });
+      }
+
+      if (estimatedDate < new Date()) {
+        return res.status(400).json({
+          success: false,
+          code: "ESTIMATED_DELIVERY_IN_PAST",
+          message: "Estimated delivery cannot be in the past",
+        });
+      }
+    }
+
+    /* =====================================================
+       9. GENERATE TRACKING NUMBER
+       Backend owns outbound tracking generation.
+    ===================================================== */
+
+    const trackingNumber = order.orderNumber
+      ? `ODK-TRK-${String(order.orderNumber).replace(/^ODK-/, "")}`
+      : `ODK-TRK-${Date.now()}`;
+
+    const trackingUrl =
+      `${TRACK_ORDER_URL}/${encodeURIComponent(order.orderNumber || "")}`;
+
+    console.log("Generated tracking:", trackingNumber);
+    console.log("Tracking URL:", trackingUrl);
+
+    /* =====================================================
+       10. ENSURE SHIPPING OBJECT
+    ===================================================== */
 
     if (!order.shipping) {
       order.shipping = {};
     }
 
-    order.shipping.courier =
-      courier._id;
+    /* =====================================================
+       11. ASSIGN COURIER TO ORDER
+    ===================================================== */
 
-    order.shipping.courierName =
-      courier.name;
+    order.shipping.courier = courier._id;
+    order.shipping.courierName = courier.name;
+    order.shipping.trackingNumber = trackingNumber;
+    order.shipping.trackingUrl = trackingUrl;
 
-    order.shipping.trackingNumber =
-      trackingNumber;
+    if (estimatedDate) {
+      order.shipping.estimatedDelivery = estimatedDate;
+    }
 
-    order.shipping.trackingUrl =
-      `${courier.trackingUrl || ""}${trackingNumber}`;
+    /*
+      Customer live tracking starts only after courier
+      assignment. The courier itself is marked busy.
+    */
+    order.shipping.assignedAt = new Date();
 
-    order.shipping.estimatedDelivery =
-      estimatedDelivery;
+    /* =====================================================
+       12. MOVE ORDER TO SHIPPED
+       Ready for Pickup -> Shipped
+    ===================================================== */
 
-    order.status =
-      "Ready for Pickup";
+    order.status = "Shipped";
 
-    appendStatusHistory(
-      order,
-      "Ready for Pickup",
-      req.user._id,
-      `Assigned to ${courier.name}`,
-    );
+    /* =====================================================
+       13. STATUS HISTORY
+    ===================================================== */
+
+    if (!Array.isArray(order.statusHistory)) {
+      order.statusHistory = [];
+    }
+
+    order.statusHistory.push({
+      status: "Shipped",
+      date: new Date(),
+      updatedBy: req.user._id,
+      changedBy: req.user._id,
+      remark:
+        `Courier assigned: ${courier.name}. Tracking: ${trackingNumber}`,
+    });
+
+    /* =====================================================
+       14. SAVE ORDER
+    ===================================================== */
 
     await order.save();
 
+    /* =====================================================
+       15. MAKE COURIER BUSY
+       GPS sharing remains off until the courier app starts
+       the delivery.
+    ===================================================== */
+
+    courier.status = "busy";
+    courier.isLocationSharing = false;
+    courier.locationUpdatedAt = null;
+
+    await courier.save();
+
+    console.log("========================================");
+    console.log("✅ COURIER ASSIGNED SUCCESSFULLY");
+    console.log("Courier:", courier.name);
+    console.log("Tracking:", trackingNumber);
+    console.log("Order status:", order.status);
+    console.log("========================================");
+
+    /* =====================================================
+       16. RESPONSE
+    ===================================================== */
+
     return res.status(200).json({
       success: true,
+      message: "Courier assigned successfully",
 
-      message:
-        "Courier assigned successfully",
+      trackingNumber,
+      trackingUrl,
 
-      order,
+      courier: {
+        _id: courier._id,
+        name: courier.name,
+        phone: courier.phone,
+        photo: courier.photo,
+        vehicleType: courier.vehicleType,
+        vehicleNumber: courier.vehicleNumber,
+        serviceAreas: courier.serviceAreas,
+        estimatedDeliveryMinutes:
+          courier.estimatedDeliveryMinutes,
+        status: courier.status,
+        verificationStatus:
+          courier.verificationStatus,
+        isActive: courier.isActive,
+      },
+
+      order: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        shipping: order.shipping,
+      },
     });
   } catch (error) {
-    console.error(
-      "Assign Courier Error:",
-      error,
-    );
+    console.error("❌ ASSIGN COURIER ERROR");
+    console.error(error);
 
     return res.status(500).json({
       success: false,
-
       message:
-        error.message,
+        error.message ||
+        "Failed to assign courier",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
+
 /* =========================================================
    UPDATE TRACKING
+   ADMIN ONLY
 ========================================================= */
 
 export const updateTracking = async (
@@ -2573,33 +2852,33 @@ export const updateTracking = async (
   res,
 ) => {
   try {
-    const {
-      orderId,
-    } = req.params;
+    const { orderId } = req.params;
 
     const {
       trackingNumber,
       trackingUrl,
     } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID",
+      });
+    }
+
     const order =
-      await Order.findById(
-        orderId,
-      );
+      await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
-
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
     if (!trackingNumber) {
       return res.status(400).json({
         success: false,
-
         message:
           "Tracking number is required",
       });
@@ -2610,21 +2889,22 @@ export const updateTracking = async (
     }
 
     order.shipping.trackingNumber =
-      trackingNumber;
+      String(trackingNumber).trim();
 
-    if (trackingUrl) {
-      order.shipping.trackingUrl =
-        trackingUrl;
-    }
+    /*
+      Optional custom tracking URL.
+      If omitted, use Odikart tracking page.
+    */
+    order.shipping.trackingUrl =
+      trackingUrl ||
+      `${TRACK_ORDER_URL}/${order.orderNumber}`;
 
     await order.save();
 
     return res.status(200).json({
       success: true,
-
       message:
         "Tracking updated successfully",
-
       order,
     });
   } catch (error) {
@@ -2635,15 +2915,16 @@ export const updateTracking = async (
 
     return res.status(500).json({
       success: false,
-
       message:
-        error.message,
+        error.message ||
+        "Failed to update tracking",
     });
   }
 };
 
 /* =========================================================
    CHANGE COURIER
+   ADMIN ONLY
 ========================================================= */
 
 export const changeCourier = async (
@@ -2651,24 +2932,33 @@ export const changeCourier = async (
   res,
 ) => {
   try {
-    const {
-      orderId,
-    } = req.params;
+    const { orderId } = req.params;
 
     const {
       courierId,
       trackingNumber,
     } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(courierId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid courier ID",
+      });
+    }
+
     const order =
-      await Order.findById(
-        orderId,
-      );
+      await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
-
         message:
           "Order not found",
       });
@@ -2682,19 +2972,48 @@ export const changeCourier = async (
     if (!courier) {
       return res.status(404).json({
         success: false,
-
         message:
           "Courier not found",
+      });
+    }
+
+    if (!isCourierVerified(courier)) {
+      return res.status(400).json({
+        success: false,
+        code: "COURIER_NOT_ELIGIBLE",
+        message:
+          "Selected courier must be active, available, and fully verified with Aadhaar and Driving Licence",
       });
     }
 
     if (!trackingNumber) {
       return res.status(400).json({
         success: false,
-
         message:
           "Tracking number is required",
       });
+    }
+
+    const previousCourierId =
+      order.shipping?.courier;
+
+    /*
+      Release old courier.
+    */
+    if (
+      previousCourierId &&
+      previousCourierId.toString() !==
+        courier._id.toString()
+    ) {
+      await Courier.findByIdAndUpdate(
+        previousCourierId,
+        {
+          $set: {
+            status: "available",
+            isLocationSharing: false,
+          },
+        },
+      );
     }
 
     if (!order.shipping) {
@@ -2708,10 +3027,15 @@ export const changeCourier = async (
       courier.name;
 
     order.shipping.trackingNumber =
-      trackingNumber;
+      String(trackingNumber).trim();
 
     order.shipping.trackingUrl =
-      `${courier.trackingUrl || ""}${trackingNumber}`;
+      `${TRACK_ORDER_URL}/${order.orderNumber}`;
+
+    order.shipping.estimatedDelivery =
+      courier.estimatedDeliveryMinutes ||
+      order.shipping.estimatedDelivery ||
+      null;
 
     appendStatusHistory(
       order,
@@ -2720,15 +3044,39 @@ export const changeCourier = async (
       `Courier changed to ${courier.name}`,
     );
 
+    courier.status = "busy";
+
+    await courier.save();
     await order.save();
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(`courier:${courier._id}`).emit(
+        "order-assigned",
+        {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+        },
+      );
+    }
 
     return res.status(200).json({
       success: true,
-
       message:
         "Courier changed successfully",
-
       order,
+      courier: {
+        _id: courier._id,
+        name: courier.name,
+        phone: courier.phone,
+        vehicleType:
+          courier.vehicleType,
+        vehicleNumber:
+          courier.vehicleNumber,
+        status: courier.status,
+      },
     });
   } catch (error) {
     console.error(
@@ -2738,9 +3086,9 @@ export const changeCourier = async (
 
     return res.status(500).json({
       success: false,
-
       message:
-        error.message,
+        error.message ||
+        "Failed to change courier",
     });
   }
 };
@@ -2759,41 +3107,91 @@ export const getCourierDetails = async (
         req.params.orderId,
       ).populate({
         path: "shipping.courier",
-
         select:
-          "name logo website trackingUrl customerCareNumber estimatedDeliveryDays",
+          "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
       });
 
     if (!order) {
       return res.status(404).json({
         success: false,
-
         message:
           "Order not found",
       });
+    }
+
+    const courier =
+      order.shipping?.courier;
+
+    let safeCourier = null;
+
+    if (courier) {
+      safeCourier = {
+        _id: courier._id,
+        name: courier.name,
+        photo:
+          courier.photo || "",
+        vehicleType:
+          courier.vehicleType || "",
+        vehicleNumber:
+          courier.vehicleNumber || "",
+        rating:
+          courier.rating ?? 5,
+        totalDeliveries:
+          courier.totalDeliveries || 0,
+        successfulDeliveries:
+          courier.successfulDeliveries || 0,
+
+        /*
+          Phone is shown only if
+          courier/admin settings allow it.
+        */
+        phone:
+          courier.showPhoneToCustomer ===
+          true
+            ? courier.phone
+            : undefined,
+
+        currentLocation:
+          courier.isLocationSharing ===
+          true
+            ? courier.currentLocation
+            : null,
+
+        locationUpdatedAt:
+          courier.isLocationSharing ===
+          true
+            ? courier.locationUpdatedAt
+            : null,
+
+        isLocationSharing:
+          courier.isLocationSharing ===
+          true,
+      };
     }
 
     return res.status(200).json({
       success: true,
 
       courier:
-        order.shipping?.courier ||
-        null,
+        safeCourier,
 
       trackingNumber:
         order.shipping
-          ?.trackingNumber ||
-        "",
+          ?.trackingNumber || "",
 
       trackingUrl:
         order.shipping
           ?.trackingUrl ||
-        "",
+        `${TRACK_ORDER_URL}/${order.orderNumber}`,
 
       estimatedDelivery:
         order.shipping
           ?.estimatedDelivery ||
+        courier?.estimatedDeliveryMinutes ||
         null,
+
+      orderStatus:
+        order.status,
     });
   } catch (error) {
     console.error(
@@ -2803,9 +3201,9 @@ export const getCourierDetails = async (
 
     return res.status(500).json({
       success: false,
-
       message:
-        error.message,
+        error.message ||
+        "Failed to get courier details",
     });
   }
 };

@@ -28,6 +28,7 @@ import razorpayWebhookRoutes
 
 import serviceabilityRoutes from "./routes/serviceabilityRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
+import financeRoutes from "./routes/financeRoutes.js";
 dotenv.config();
 
 
@@ -158,7 +159,7 @@ app.use(
   "/api",
   userRoutes
 );
-
+app.use("/api/finance", financeRoutes);
 
 /* =====================================================
    PAYMENT ROUTES
@@ -215,7 +216,7 @@ app.use(
 ===================================================== */
 
 app.use(
-  "/api",
+  "/api/couriers",
   courierRoutes
 );
 

@@ -23,6 +23,7 @@ import {
   inspectReturnedProduct,
   completeRefund,
 } from "../controllers/orderController.js";
+
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/roleMiddleware.js";
 
@@ -32,23 +33,9 @@ const router = express.Router();
    CUSTOMER ROUTES
 ===================================================== */
 
-/* Place Order */
+router.post("/save-order", authMiddleware, saveOrder);
 
-router.post(
-  "/save-order",
-  authMiddleware,
-  saveOrder
-);
-
-/* My Orders */
-
-router.get(
-  "/my-orders",
-  authMiddleware,
-  getUserOrders
-);
-
-/* Single Order */
+router.get("/my-orders", authMiddleware, getUserOrders);
 
 router.get(
   "/order/:id",
@@ -57,8 +44,6 @@ router.get(
   getSingleOrder
 );
 
-/* Track Order */
-
 router.get(
   "/track-order/:orderNumber",
   authMiddleware,
@@ -66,31 +51,23 @@ router.get(
   trackOrder
 );
 
-/* Cancel Order */
-
-router.put(
-  "/order/cancel/:id",
-  authMiddleware,
-  cancelOrder
-);
+router.put("/order/cancel/:id", authMiddleware, cancelOrder);
 
 /* =====================================================
-   RETURN (CUSTOMER)
+   RETURN REQUEST
+   USER + SELLER
 ===================================================== */
-
-/* Request Return */
 
 router.put(
   "/return/request/:orderId",
   authMiddleware,
+  authorizeRoles("user", "seller"),
   requestReturn
 );
 
 /* =====================================================
    ADMIN ROUTES
 ===================================================== */
-
-/* All Orders */
 
 router.get(
   "/orders",
@@ -99,8 +76,6 @@ router.get(
   getOrders
 );
 
-/* Update Order Status */
-
 router.put(
   "/order/status/:orderId",
   authMiddleware,
@@ -108,8 +83,7 @@ router.put(
   updateOrderStatus
 );
 
-/* Assign Courier for order*/
-
+/* Assign Courier */
 router.put(
   "/order/assign/:orderId",
   authMiddleware,
@@ -118,7 +92,6 @@ router.put(
 );
 
 /* Update Tracking */
-
 router.put(
   "/order/tracking/:orderId",
   authMiddleware,
@@ -127,7 +100,6 @@ router.put(
 );
 
 /* Change Courier */
-
 router.put(
   "/courier/order/change/:orderId",
   authMiddleware,
@@ -136,7 +108,6 @@ router.put(
 );
 
 /* Courier Details */
-
 router.get(
   "/courier/order/:orderId",
   authMiddleware,
@@ -145,10 +116,8 @@ router.get(
 );
 
 /* =====================================================
-   RETURN MANAGEMENT (ADMIN)
+   RETURN MANAGEMENT
 ===================================================== */
-
-/* Approve Return */
 
 router.put(
   "/return/approve/:orderId",
@@ -157,16 +126,12 @@ router.put(
   approveReturn
 );
 
-/* Reject Return */
-
 router.put(
   "/return/reject/:orderId",
   authMiddleware,
   authorizeRoles("admin"),
   rejectReturn
 );
-
-/* Assign Return Courier */
 
 router.put(
   "/return/assign-courier/:orderId",
@@ -175,16 +140,12 @@ router.put(
   assignReturnCourier
 );
 
-/* Product Picked Up */
-
 router.put(
   "/return/picked/:orderId",
   authMiddleware,
   authorizeRoles("admin"),
   returnPickedUp
 );
-
-/* Product Received */
 
 router.put(
   "/return/received/:orderId",
@@ -193,16 +154,12 @@ router.put(
   receiveReturnedProduct
 );
 
-/* Inspection */
-
 router.put(
   "/return/inspection/:orderId",
   authMiddleware,
   authorizeRoles("admin"),
   inspectReturnedProduct
 );
-
-/* Refund */
 
 router.put(
   "/return/refund-complete/:orderId",
@@ -222,26 +179,11 @@ router.get(
   getSellerOrders
 );
 
-/* Seller Analytics */
-
 router.get(
   "/seller/orders/analytics",
   authMiddleware,
   authorizeRoles("seller"),
   getSellerAnalytics
-);
-
-/* =====================================================
-   RETURN (SELLER)
-===================================================== */
-
-/* Request Return */
-
-router.put(
-  "/return/request/:orderId",
-  authMiddleware,
-  authorizeRoles("seller"),
-  requestReturn
 );
 
 export default router;
