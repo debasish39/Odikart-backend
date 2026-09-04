@@ -45,7 +45,7 @@ connectDB();
    CORS
 ===================================================== */
 const allowedOrigins = [ "http://localhost:5173",
-  "http://localhost:5174", process.env.FRONTEND_URL, process.env.FRONTEND_URL_WWW,process.env.SELLER_URL].filter(Boolean);
+  "http://localhost:5174", process.env.FRONTEND_URL, process.env.FRONTEND_URL_WWW,process.env.SELLER_URL,process.env.ADMIN_URL].filter(Boolean);
 
 app.use(
   cors({
