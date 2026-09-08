@@ -5,6 +5,7 @@ import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Coupon from "../models/Coupon.js";
 import Courier from "../models/Courier.js";
+import User from "../models/User.js";
 
 import razorpay from "../utils/razorpay.js";
 import { sendEmail } from "../utils/sendEmail.js";
@@ -1177,7 +1178,225 @@ const itemTax =
       await order.save();
 
     /* =====================================================
-       27. MARK COUPON USED
+       27. EMAIL SELLERS + ADMINS
+       Send a new-order email after the order is saved.
+       Each seller receives only their own products.
+    ===================================================== */
+    try {
+      const sellerIds = [
+        ...new Set(
+          formattedItems
+            .map((item) => item.sellerId?.toString())
+            .filter(Boolean)
+        ),
+      ];
+
+      const sellerUsers = sellerIds.length
+        ? await User.find({
+            _id: { $in: sellerIds },
+            role: "seller",
+          })
+            .select("_id firstName lastName email")
+            .lean()
+        : [];
+
+      const admins = await User.find({ role: "admin" })
+        .select("_id firstName lastName email")
+        .lean();
+
+      const customerName = fullname;
+      const orderTotal = money(savedOrder.pricing?.total);
+      const paymentText = savedOrder.payment?.method || "COD";
+
+      /* -----------------------------------------------------
+         SELLER EMAILS
+      ----------------------------------------------------- */
+      await Promise.all(
+        sellerUsers
+          .filter((seller) => seller.email)
+          .map(async (seller) => {
+            const sellerItems = formattedItems.filter(
+              (item) =>
+                item.sellerId?.toString() === seller._id.toString()
+            );
+
+            const sellerSubtotal = sellerItems.reduce(
+              (total, item) =>
+                total + Number(item.total || 0),
+              0
+            );
+
+            const sellerItemsHtml = sellerItems
+              .map(
+                (item, index) => `
+                  <tr>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">${index + 1}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">${item.title}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">${item.variantSku || "-"}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${money(item.total)}</td>
+                  </tr>
+                `
+              )
+              .join("");
+
+            await sendEmail(
+              seller.email,
+              `🛒 New Order Received – ${savedOrder.orderNumber}`,
+              `
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:680px;margin:30px auto;background:#fff;border-radius:16px;overflow:hidden;">
+    <div style="background:#111827;color:#fff;padding:24px;">
+      <h2 style="margin:0;">🛒 New Order Received</h2>
+      <p style="margin:8px 0 0;">A customer has placed an order for your product.</p>
+    </div>
+
+    <div style="padding:24px;">
+      <p>Hello ${getFullName(seller) || "Seller"},</p>
+      <p>You have received a new order on Odikart.</p>
+
+      <div style="background:#f9fafb;padding:16px;border-radius:10px;">
+        <p><b>Order Number:</b> ${savedOrder.orderNumber}</p>
+        <p><b>Customer:</b> ${customerName}</p>
+        <p><b>Phone:</b> ${phone}</p>
+        <p><b>Payment:</b> ${paymentText}</p>
+        <p><b>Order Total:</b> ₹${orderTotal}</p>
+        <p><b>Your Items Total:</b> ₹${money(sellerSubtotal)}</p>
+      </div>
+
+      <h3 style="margin-top:24px;">Ordered Products</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="padding:10px;text-align:left;">#</th>
+            <th style="padding:10px;text-align:left;">Product</th>
+            <th style="padding:10px;text-align:left;">SKU</th>
+            <th style="padding:10px;text-align:center;">Qty</th>
+            <th style="padding:10px;text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>${sellerItemsHtml}</tbody>
+      </table>
+
+      <h3 style="margin-top:24px;">Delivery Address</h3>
+      <p>
+        ${savedOrder.deliveryAddress?.address?.addressLine1 || ""}<br>
+        ${savedOrder.deliveryAddress?.address?.addressLine2 || ""}<br>
+        ${savedOrder.deliveryAddress?.address?.area || ""},
+        ${savedOrder.deliveryAddress?.address?.city || ""}<br>
+        ${savedOrder.deliveryAddress?.address?.district || ""},
+        ${savedOrder.deliveryAddress?.address?.state || ""} -
+        ${savedOrder.deliveryAddress?.address?.postalCode || ""}
+      </p>
+
+      <p style="margin-top:24px;">Please log in to your seller dashboard to process this order.</p>
+    </div>
+  </div>
+</body>
+</html>
+              `
+            );
+          })
+      );
+
+      /* -----------------------------------------------------
+         ADMIN EMAILS
+      ----------------------------------------------------- */
+      await Promise.all(
+        admins
+          .filter((admin) => admin.email)
+          .map(async (admin) => {
+            const itemsHtml = formattedItems
+              .map(
+                (item, index) => `
+                  <tr>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">${index + 1}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">${item.title}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">${item.variantSku || "-"}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${money(item.total)}</td>
+                  </tr>
+                `
+              )
+              .join("");
+
+            await sendEmail(
+              admin.email,
+              `🛒 New Order Placed – ${savedOrder.orderNumber}`,
+              `
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <div style="max-width:680px;margin:30px auto;background:#fff;border-radius:16px;overflow:hidden;">
+    <div style="background:#111827;color:#fff;padding:24px;">
+      <h2 style="margin:0;">🛒 New Order Placed</h2>
+      <p style="margin:8px 0 0;">A new order has been placed on Odikart.</p>
+    </div>
+
+    <div style="padding:24px;">
+      <p>Hello Admin,</p>
+      <p>A customer has successfully created a new order.</p>
+
+      <div style="background:#f9fafb;padding:16px;border-radius:10px;">
+        <p><b>Order Number:</b> ${savedOrder.orderNumber}</p>
+        <p><b>Customer:</b> ${customerName}</p>
+        <p><b>Email:</b> ${email}</p>
+        <p><b>Phone:</b> ${phone}</p>
+        <p><b>Payment:</b> ${paymentText}</p>
+        <p><b>Payment Status:</b> ${savedOrder.payment?.status || "Pending"}</p>
+        <p><b>Total:</b> ₹${orderTotal}</p>
+      </div>
+
+      <h3 style="margin-top:24px;">Ordered Products</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="padding:10px;text-align:left;">#</th>
+            <th style="padding:10px;text-align:left;">Product</th>
+            <th style="padding:10px;text-align:left;">SKU</th>
+            <th style="padding:10px;text-align:center;">Qty</th>
+            <th style="padding:10px;text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>${itemsHtml}</tbody>
+      </table>
+
+      <h3 style="margin-top:24px;">Delivery Address</h3>
+      <p>
+        ${savedOrder.deliveryAddress?.address?.addressLine1 || ""}<br>
+        ${savedOrder.deliveryAddress?.address?.addressLine2 || ""}<br>
+        ${savedOrder.deliveryAddress?.address?.area || ""},
+        ${savedOrder.deliveryAddress?.address?.city || ""}<br>
+        ${savedOrder.deliveryAddress?.address?.district || ""},
+        ${savedOrder.deliveryAddress?.address?.state || ""} -
+        ${savedOrder.deliveryAddress?.address?.postalCode || ""}
+      </p>
+
+      <p style="margin-top:24px;">Please open the admin dashboard to review and process this order.</p>
+    </div>
+  </div>
+</body>
+</html>
+              `
+            );
+          })
+      );
+
+      console.log(
+        `📧 New-order emails sent for ${savedOrder.orderNumber}`
+      );
+    } catch (emailError) {
+      /* Email failure must not undo a successfully saved order. */
+      console.error(
+        "❌ New-order email notification failed:",
+        emailError
+      );
+    }
+
+    /* =====================================================
+       28. MARK COUPON USED
     ===================================================== */
 
     if (couponCode) {
@@ -1197,7 +1416,7 @@ const itemTax =
     }
 
     /* =====================================================
-       28. RESPONSE
+       29. RESPONSE
     ===================================================== */
 
     console.log(
@@ -1248,7 +1467,7 @@ const itemTax =
     );
 
     /* =====================================================
-       29. ROLLBACK STOCK
+       30. ROLLBACK STOCK
     ===================================================== */
 
     if (
