@@ -31,6 +31,7 @@ import {
   // FIREBASE PHONE LOGIN
   // =====================================
   firebasePhoneLogin,
+  completeProfile
 
 } from "../controllers/authController.js";
 
@@ -84,7 +85,15 @@ router.post(
   firebasePhoneLogin
 );
 
+/* =========================================================
+   COMPLETE CUSTOMER PHONE PROFILE
+========================================================= */
 
+router.post(
+  "/complete-profile",
+  authMiddleware,
+  completeProfile
+);
 /* =========================================================
    ADMIN LOGIN
 ========================================================= */

@@ -1776,6 +1776,245 @@ export const firebasePhoneLogin =
     }
 
   };
+  /* =========================================================
+   COMPLETE CUSTOMER PROFILE
+   Used only after Firebase Phone Signup
+========================================================= */
+
+export const completeProfile = async (req, res) => {
+  try {
+    /* =====================================================
+       AUTHENTICATED USER
+    ===================================================== */
+
+    const userId =
+      req.user?._id ||
+      req.user?.id;
+
+    if (!userId || !isValidObjectId(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    /* =====================================================
+       GET USER
+    ===================================================== */
+
+    const user =
+      await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User account not found",
+      });
+    }
+
+    /* =====================================================
+       ACCOUNT STATUS
+    ===================================================== */
+
+    if (user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: "This account has been deleted",
+      });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: "This account is blocked",
+      });
+    }
+
+    /* =====================================================
+       CUSTOMER ONLY
+
+       This endpoint is specifically for the
+       Firebase phone customer signup flow.
+
+       Seller accounts are NOT modified here.
+    ===================================================== */
+
+    if (user.role !== "user") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This profile completion is only available for customer accounts.",
+      });
+    }
+
+    /* =====================================================
+       PROVIDER CHECK
+
+       Only Firebase phone-created accounts should
+       use this endpoint.
+    ===================================================== */
+
+    if (user.provider !== "firebase") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This profile completion is only available for phone authentication.",
+      });
+    }
+
+    /* =====================================================
+       INPUT
+    ===================================================== */
+
+    const firstName =
+      normalizeString(
+        req.body?.firstName,
+        MAX_NAME_LENGTH
+      );
+
+    const lastName =
+      normalizeString(
+        req.body?.lastName,
+        MAX_NAME_LENGTH
+      );
+
+    const email =
+      normalizeEmail(
+        req.body?.email
+      );
+
+    /* =====================================================
+       VALIDATION
+    ===================================================== */
+
+    if (!firstName) {
+      return res.status(400).json({
+        success: false,
+        message: "First name is required",
+      });
+    }
+
+    if (!lastName) {
+      return res.status(400).json({
+        success: false,
+        message: "Last name is required",
+      });
+    }
+
+    if (
+      email &&
+      !isValidEmail(email)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email address",
+      });
+    }
+
+    /* =====================================================
+       EMAIL UNIQUENESS
+
+       Email is optional for phone signup.
+       If supplied, it must belong to this user only.
+    ===================================================== */
+
+    if (email) {
+      const existingUser =
+        await User.findOne({
+          email,
+          _id: {
+            $ne: user._id,
+          },
+          isDeleted: {
+            $ne: true,
+          },
+        });
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This email address is already associated with another account.",
+        });
+      }
+
+      user.email = email;
+
+      /*
+       * Email was supplied during profile completion,
+       * but it has NOT been verified through email OTP.
+       */
+      user.isEmailVerified = false;
+    }
+
+    /* =====================================================
+       UPDATE CUSTOMER PROFILE
+    ===================================================== */
+
+    user.firstName = firstName;
+    user.lastName = lastName;
+
+    /*
+     * Phone was already verified by Firebase.
+     */
+    user.isPhoneVerified = true;
+    user.isVerified = true;
+
+    /*
+     * This endpoint is customer-only.
+     */
+    user.role = "user";
+    user.activeMode = "customer";
+
+    user.lastLogin =
+      new Date();
+
+    await user.save();
+
+    /* =====================================================
+       GENERATE FINAL ODIKART JWT
+    ===================================================== */
+
+    const token =
+      generateToken(
+        user,
+        "customer"
+      );
+
+    /* =====================================================
+       SAFE USER RESPONSE
+    ===================================================== */
+
+    const responseUser =
+      safeAuthResponse(user);
+
+    /* =====================================================
+       SUCCESS
+    ===================================================== */
+
+    return res.status(200).json({
+      success: true,
+
+      message:
+        "Profile completed successfully",
+
+      token,
+
+      user:
+        responseUser,
+
+      app: "customer",
+    });
+
+  } catch (error) {
+
+    return unexpectedError(
+      res,
+      error,
+      "Complete Customer Profile Error"
+    );
+  }
+};
 // CHECK EMAIL / FIND EXISTING ACCOUNT
 // =========================================================
 
