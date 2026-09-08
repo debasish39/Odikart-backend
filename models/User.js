@@ -483,22 +483,37 @@ const userSchema = new mongoose.Schema(
          NOTIFICATIONS
       ===================================== */
 
-      notificationSettings: {
-        email: {
-          type: Boolean,
-          default: true,
-        },
+  notificationSettings: {
+  email: {
+    type: Boolean,
+    default: true,
+  },
 
-        sms: {
-          type: Boolean,
-          default: true,
-        },
+  sms: {
+    type: Boolean,
+    default: true,
+  },
 
-        push: {
-          type: Boolean,
-          default: true,
-        },
-      },
+  push: {
+    type: Boolean,
+    default: true,
+  },
+
+  promotionalEmail: {
+    type: Boolean,
+    default: true,
+  },
+
+  promotionalSms: {
+    type: Boolean,
+    default: true,
+  },
+
+  promotionalPush: {
+    type: Boolean,
+    default: true,
+  },
+},
 
       /* =====================================
          SELLER VERIFICATION

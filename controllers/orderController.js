@@ -156,9 +156,6 @@ const ACTIVE_COURIER_STATUSES = [
 ========================================================= */
 
 export const saveOrder = async (req, res) => {
-  console.log("\n====================================");
-  console.log("🛒 SAVE ORDER API HIT");
-  console.log("====================================");
 
   let stockDeducted = [];
 
@@ -367,15 +364,6 @@ export const saveOrder = async (req, res) => {
         product.shipping
           ?.serviceablePincodes || [];
 
-      console.log("\n--------------------------------");
-      console.log("📍 SERVICEABILITY CHECK");
-      console.log("Product:", product.title);
-      console.log("Customer PIN:", postalCode);
-      console.log(
-        "Allowed PINs:",
-        allowedPincodes
-      );
-
       /*
         EMPTY ARRAY
         = Product can be delivered everywhere
@@ -392,9 +380,6 @@ export const saveOrder = async (req, res) => {
           );
 
         if (!serviceable) {
-          console.log(
-            "❌ PRODUCT NOT SERVICEABLE"
-          );
 
           return res.status(400).json({
             success: false,
@@ -415,10 +400,6 @@ export const saveOrder = async (req, res) => {
           });
         }
       }
-
-      console.log(
-        "✅ PRODUCT SERVICEABLE"
-      );
 
       /* =================================================
          9. FIND VARIANT
@@ -1177,6 +1158,7 @@ const itemTax =
     const savedOrder =
       await order.save();
 
+//
     /* =====================================================
        27. EMAIL SELLERS + ADMINS
        Send a new-order email after the order is saved.
@@ -1383,16 +1365,8 @@ const itemTax =
             );
           })
       );
-
-      console.log(
-        `📧 New-order emails sent for ${savedOrder.orderNumber}`
-      );
     } catch (emailError) {
       /* Email failure must not undo a successfully saved order. */
-      console.error(
-        "❌ New-order email notification failed:",
-        emailError
-      );
     }
 
     /* =====================================================
@@ -1418,11 +1392,6 @@ const itemTax =
     /* =====================================================
        29. RESPONSE
     ===================================================== */
-
-    console.log(
-      "✅ ORDER SAVED:",
-      savedOrder.orderNumber
-    );
 
     return res.status(201).json({
       success: true,
@@ -1458,13 +1427,6 @@ const itemTax =
           : null,
     });
   } catch (error) {
-    console.error(
-      "\n❌ SAVE ORDER ERROR"
-    );
-
-    console.error(
-      error
-    );
 
     /* =====================================================
        30. ROLLBACK STOCK
@@ -1474,9 +1436,6 @@ const itemTax =
       stockDeducted.length >
       0
     ) {
-      console.log(
-        "🔄 Rolling back stock..."
-      );
 
       for (
         const item
@@ -1505,10 +1464,6 @@ const itemTax =
         } catch (
           rollbackError
         ) {
-          console.error(
-            "❌ STOCK ROLLBACK FAILED:",
-            rollbackError
-          );
         }
       }
     }
@@ -1557,10 +1512,6 @@ export const getOrders = async (req, res) => {
       orders,
     });
   } catch (error) {
-    console.error(
-      "Fetch Orders Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -1599,10 +1550,6 @@ export const getUserOrders = async (
       orders,
     });
   } catch (error) {
-    console.error(
-      "Fetch User Orders Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -1746,10 +1693,6 @@ export const getSingleOrder = async (
       message: "Access denied",
     });
   } catch (error) {
-    console.error(
-      "Get Single Order Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -1808,10 +1751,6 @@ export const trackOrder = async (
       order,
     });
   } catch (error) {
-    console.error(
-      "Track Order Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -1987,10 +1926,6 @@ export const cancelOrder = async (
 
         refundCreated = true;
       } catch (refundError) {
-        console.error(
-          "Razorpay refund failed:",
-          refundError,
-        );
 
         const description =
           refundError?.error
@@ -2085,11 +2020,6 @@ export const cancelOrder = async (
         If refund has already happened but stock restoration
         fails, do NOT pretend the entire operation succeeded.
       */
-
-      console.error(
-        "Stock restoration failed:",
-        stockError,
-      );
 
       return res.status(500).json({
         success: false,
@@ -2351,10 +2281,334 @@ border-radius:8px;
 `,
       );
     } catch (emailError) {
-      console.error(
-        "Cancellation email failed:",
-        emailError.message,
+    }
+
+
+    /* =====================================================
+       SELLER + ADMIN CANCELLATION EMAILS
+       Customer cancellation notification
+    ===================================================== */
+
+    let sellerCancellationEmailsSent = 0;
+    let adminCancellationEmailsSent = 0;
+
+    try {
+      const sellerIds = [
+        ...new Set(
+          order.items
+            .map((item) => getSellerIdFromItem(item))
+            .filter(Boolean),
+        ),
+      ];
+
+      const sellerUsers = sellerIds.length
+        ? await User.find({
+            _id: { $in: sellerIds },
+            role: "seller",
+          })
+            .select("_id firstName lastName email")
+            .lean()
+        : [];
+
+      const admins = await User.find({
+        role: "admin",
+      })
+        .select("_id firstName lastName email")
+        .lean();
+
+      const customerName =
+        order.fullname || "Customer";
+
+      const orderTotal =
+        money(order.pricing?.total || 0);
+
+      const paymentMethod =
+        order.payment?.method || "COD";
+
+      const paymentStatus =
+        order.payment?.status || "Pending";
+
+      /* -----------------------------------------------------
+         SELLER CANCELLATION EMAILS
+         Each seller receives only their own cancelled items.
+      ----------------------------------------------------- */
+
+      await Promise.all(
+        sellerUsers
+          .filter((seller) => seller.email)
+          .map(async (seller) => {
+            const sellerItems = order.items.filter(
+              (item) =>
+                getSellerIdFromItem(item) ===
+                seller._id.toString(),
+            );
+
+            if (!sellerItems.length) {
+              return;
+            }
+
+            const sellerTotal = money(
+              sellerItems.reduce(
+                (total, item) =>
+                  total + Number(item.total || 0),
+                0,
+              ),
+            );
+
+            const sellerItemsHtml = sellerItems
+              .map(
+                (item, index) => `
+                  <tr>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">
+                      ${index + 1}
+                    </td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">
+                      ${item.title || "Product"}
+                    </td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">
+                      ${item.variantSku || "-"}
+                    </td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                      ${item.quantity || 0}
+                    </td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">
+                      ₹${money(item.total || 0)}
+                    </td>
+                  </tr>
+                `,
+              )
+              .join("");
+
+            await sendEmail(
+              seller.email,
+              `❌ Order Cancelled – ${order.orderNumber}`,
+              `
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
+<div style="max-width:680px;margin:30px auto;background:#fff;border-radius:16px;overflow:hidden;">
+
+<div style="background:linear-gradient(135deg,#ef4444,#dc2626);padding:28px 20px;text-align:center;color:#fff;">
+<img
+  src="${ODiKART_LOGO}"
+  alt="Odikart Logo"
+  width="90"
+  style="display:block;margin:0 auto 15px;border-radius:14px;background:#fff;padding:6px;"
+/>
+<h1 style="margin:0;color:#fff;">❌ Order Cancelled</h1>
+<p style="margin:8px 0 0;">A customer has cancelled an order containing your product.</p>
+</div>
+
+<div style="padding:25px;">
+<h2>Hello ${getFullName(seller) || "Seller"},</h2>
+
+<p style="color:#4b5563;line-height:1.6;">
+A customer has cancelled an order on Odikart.
+The affected products belonging to you are listed below.
+</p>
+
+<div style="background:#f9fafb;padding:18px;border-radius:10px;">
+<p><b>Order Number:</b> ${order.orderNumber}</p>
+<p><b>Customer:</b> ${customerName}</p>
+<p><b>Phone:</b> ${order.phone || "-"}</p>
+<p><b>Payment:</b> ${paymentMethod}</p>
+<p><b>Payment Status:</b> ${paymentStatus}</p>
+<p><b>Your Cancelled Items Total:</b> ₹${sellerTotal}</p>
+</div>
+
+<h3 style="margin-top:24px;">🛒 Cancelled Products</h3>
+
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<thead>
+<tr style="background:#f3f4f6;">
+<th style="padding:10px;text-align:left;">#</th>
+<th style="padding:10px;text-align:left;">Product</th>
+<th style="padding:10px;text-align:left;">SKU</th>
+<th style="padding:10px;text-align:center;">Qty</th>
+<th style="padding:10px;text-align:right;">Total</th>
+</tr>
+</thead>
+<tbody>
+${sellerItemsHtml}
+</tbody>
+</table>
+
+<div style="background:#ecfdf5;padding:15px;margin-top:20px;border-radius:10px;color:#065f46;">
+<b>📦 Stock Restored</b>
+<p style="margin-bottom:0;">
+The cancelled quantity has been restored to your product inventory.
+</p>
+</div>
+
+<div style="text-align:center;margin:30px 0;">
+<a
+  href="${TRACK_ORDER_URL}"
+  style="background:#6366f1;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;"
+>
+  🔍 View Order
+</a>
+</div>
+
+<p style="text-align:center;color:#9ca3af;font-size:13px;">
+This is an automated email from Odikart.
+</p>
+
+</div>
+</div>
+</body>
+</html>
+              `,
+            );
+
+            sellerCancellationEmailsSent += 1;
+          }),
       );
+
+      /* -----------------------------------------------------
+         ADMIN CANCELLATION EMAILS
+         Each admin receives the complete cancelled order.
+      ----------------------------------------------------- */
+
+      const itemsHtml = order.items
+        .map(
+          (item, index) => `
+            <tr>
+              <td style="padding:10px;border-bottom:1px solid #eee;">
+                ${index + 1}
+              </td>
+              <td style="padding:10px;border-bottom:1px solid #eee;">
+                ${item.title || "Product"}
+              </td>
+              <td style="padding:10px;border-bottom:1px solid #eee;">
+                ${item.variantSku || "-"}
+              </td>
+              <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                ${item.quantity || 0}
+              </td>
+              <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">
+                ₹${money(item.total || 0)}
+              </td>
+            </tr>
+          `,
+        )
+        .join("");
+
+      await Promise.all(
+        admins
+          .filter((admin) => admin.email)
+          .map(async (admin) => {
+            await sendEmail(
+              admin.email,
+              `❌ Order Cancelled – ${order.orderNumber}`,
+              `
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
+<div style="max-width:720px;margin:30px auto;background:#fff;border-radius:16px;overflow:hidden;">
+
+<div style="background:linear-gradient(135deg,#ef4444,#dc2626);padding:28px 20px;text-align:center;color:#fff;">
+<img
+  src="${ODiKART_LOGO}"
+  alt="Odikart Logo"
+  width="90"
+  style="display:block;margin:0 auto 15px;border-radius:14px;background:#fff;padding:6px;"
+/>
+<h1 style="margin:0;color:#fff;">❌ Order Cancelled</h1>
+<p style="margin:8px 0 0;">A customer has cancelled an order on Odikart.</p>
+</div>
+
+<div style="padding:25px;">
+<h2>Hello ${getFullName(admin) || "Admin"},</h2>
+
+<p style="color:#4b5563;line-height:1.6;">
+A customer has cancelled an order. Please review the cancellation in the admin dashboard.
+</p>
+
+<div style="background:#f9fafb;padding:18px;border-radius:10px;">
+<p><b>Order Number:</b> ${order.orderNumber}</p>
+<p><b>Order ID:</b> ${order._id}</p>
+<p><b>Customer:</b> ${customerName}</p>
+<p><b>Email:</b> ${order.email || "-"}</p>
+<p><b>Phone:</b> ${order.phone || "-"}</p>
+<p><b>Payment Method:</b> ${paymentMethod}</p>
+<p><b>Payment Status:</b> ${paymentStatus}</p>
+<p><b>Order Amount:</b> ₹${orderTotal}</p>
+<p><b>Cancelled By:</b> ${order.cancelledBy || "user"}</p>
+<p><b>Cancelled At:</b> ${new Date(order.cancelledAt || Date.now()).toLocaleString("en-IN")}</p>
+</div>
+
+<div style="background:#ecfdf5;padding:15px;margin-top:20px;border-radius:10px;color:#065f46;">
+<b>💰 Refund Information</b>
+<p style="margin-bottom:0;">
+${
+  refundCreated
+    ? `Refund of ₹${orderTotal} has been initiated. Expected refund time: 5–7 business days.`
+    : `No online payment refund was required for this order.`
+}
+</p>
+</div>
+
+<h3 style="margin-top:24px;">🛒 Cancelled Products</h3>
+
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<thead>
+<tr style="background:#f3f4f6;">
+<th style="padding:10px;text-align:left;">#</th>
+<th style="padding:10px;text-align:left;">Product</th>
+<th style="padding:10px;text-align:left;">SKU</th>
+<th style="padding:10px;text-align:center;">Qty</th>
+<th style="padding:10px;text-align:right;">Total</th>
+</tr>
+</thead>
+<tbody>
+${itemsHtml}
+</tbody>
+</table>
+
+<div style="background:#ecfdf5;padding:15px;margin-top:20px;border-radius:10px;color:#065f46;">
+<b>📦 Stock Restored</b>
+<p style="margin-bottom:0;">
+All cancelled product quantities have been restored to inventory.
+</p>
+</div>
+
+<h3 style="margin-top:24px;">📍 Delivery Address</h3>
+
+<p style="line-height:1.7;color:#4b5563;">
+${order.deliveryAddress?.address?.addressLine1 || ""}<br>
+${order.deliveryAddress?.address?.addressLine2 || ""}<br>
+${order.deliveryAddress?.address?.area || ""},
+${order.deliveryAddress?.address?.city || ""}<br>
+${order.deliveryAddress?.address?.district || ""},
+${order.deliveryAddress?.address?.state || ""} -
+${order.deliveryAddress?.address?.postalCode || ""}
+</p>
+
+<div style="text-align:center;margin:30px 0;">
+<a
+  href="${TRACK_ORDER_URL}"
+  style="background:#111827;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;"
+>
+  🔍 View Order
+</a>
+</div>
+
+<p style="text-align:center;color:#9ca3af;font-size:13px;">
+This is an automated email from Odikart.
+</p>
+
+</div>
+</div>
+</body>
+</html>
+              `,
+            );
+
+            adminCancellationEmailsSent += 1;
+          }),
+      );
+    } catch (notificationError) {
+      /* Notification failure must not undo the cancellation. */
     }
 
     /* =====================================================
@@ -2442,10 +2696,6 @@ ${TRACK_ORDER_URL}
 `,
       );
     } catch (whatsappError) {
-      console.error(
-        "Cancellation WhatsApp failed:",
-        whatsappError.message,
-      );
     }
 
     return res.status(200).json({
@@ -2455,12 +2705,34 @@ ${TRACK_ORDER_URL}
         "Order cancelled successfully & stock restored",
 
       order,
+
+      notifications: {
+        customerEmail: true,
+        customerWhatsApp: true,
+        sellerEmailsSent:
+          sellerCancellationEmailsSent,
+        adminEmailsSent:
+          adminCancellationEmailsSent,
+      },
+
+      refund: {
+        created: refundCreated,
+        amount: refundCreated
+          ? money(order.pricing?.total || 0)
+          : 0,
+        status:
+          refundCreated
+            ? "Completed"
+            : "Not Required",
+      },
+
+      stock: {
+        restored: true,
+        restoredItems:
+          order.items?.length || 0,
+      },
     });
   } catch (error) {
-    console.error(
-      "Cancel Order Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -2693,11 +2965,6 @@ export const updateOrderStatus = async (
           Do not fail the delivery status because
           wallet processing has its own operation.
         */
-
-        console.error(
-          "Seller wallet credit failed:",
-          walletError,
-        );
       }
     }
 
@@ -2710,10 +2977,6 @@ export const updateOrderStatus = async (
       order,
     });
   } catch (error) {
-    console.error(
-      "Update Order Status Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -2732,9 +2995,6 @@ export const updateOrderStatus = async (
 
 export const assignCourier = async (req, res) => {
   try {
-    console.log("========================================");
-    console.log("🚚 ASSIGN COURIER CONTROLLER");
-    console.log("========================================");
 
     /* =====================================================
        1. ADMIN CHECK
@@ -2753,10 +3013,6 @@ export const assignCourier = async (req, res) => {
 
     const { orderId } = req.params;
     const { courierId, estimatedDelivery } = req.body || {};
-
-    console.log("orderId:", orderId);
-    console.log("courierId:", courierId);
-    console.log("estimatedDelivery:", estimatedDelivery);
 
     /* =====================================================
        3. VALIDATE IDS
@@ -2796,9 +3052,6 @@ export const assignCourier = async (req, res) => {
       });
     }
 
-    console.log("Order:", order.orderNumber);
-    console.log("Order status:", order.status);
-
     /* =====================================================
        5. ORDER STATUS
        Courier assignment is allowed only after packing.
@@ -2825,13 +3078,6 @@ export const assignCourier = async (req, res) => {
         message: "Courier not found",
       });
     }
-
-    console.log("Courier:", courier.name);
-    console.log("Courier status:", courier.status);
-    console.log(
-      "Courier verification:",
-      courier.verificationStatus
-    );
 
     /* =====================================================
        7. COURIER VALIDATION
@@ -2930,9 +3176,6 @@ export const assignCourier = async (req, res) => {
     const trackingUrl =
       `${TRACK_ORDER_URL}/${encodeURIComponent(order.orderNumber || "")}`;
 
-    console.log("Generated tracking:", trackingNumber);
-    console.log("Tracking URL:", trackingUrl);
-
     /* =====================================================
        10. ENSURE SHIPPING OBJECT
     ===================================================== */
@@ -3002,13 +3245,6 @@ export const assignCourier = async (req, res) => {
 
     await courier.save();
 
-    console.log("========================================");
-    console.log("✅ COURIER ASSIGNED SUCCESSFULLY");
-    console.log("Courier:", courier.name);
-    console.log("Tracking:", trackingNumber);
-    console.log("Order status:", order.status);
-    console.log("========================================");
-
     /* =====================================================
        16. RESPONSE
     ===================================================== */
@@ -3044,8 +3280,6 @@ export const assignCourier = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ ASSIGN COURIER ERROR");
-    console.error(error);
 
     return res.status(500).json({
       success: false,
@@ -3127,10 +3361,6 @@ export const updateTracking = async (
       order,
     });
   } catch (error) {
-    console.error(
-      "Update Tracking Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -3298,10 +3528,6 @@ export const changeCourier = async (
       },
     });
   } catch (error) {
-    console.error(
-      "Change Courier Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -3413,10 +3639,6 @@ export const getCourierDetails = async (
         order.status,
     });
   } catch (error) {
-    console.error(
-      "Get Courier Details Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -3538,10 +3760,6 @@ export const requestReturn = async (
       order,
     });
   } catch (error) {
-    console.error(
-      "Request Return Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -3619,10 +3837,6 @@ export const approveReturn = async (
       order,
     });
   } catch (error) {
-    console.error(
-      "Approve Return Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -3713,10 +3927,6 @@ export const rejectReturn = async (
       order,
     });
   } catch (error) {
-    console.error(
-      "Reject Return Error:",
-      error,
-    );
 
     return res.status(500).json({
       success: false,
@@ -3837,10 +4047,6 @@ export const assignReturnCourier =
         order,
       });
     } catch (error) {
-      console.error(
-        "Assign Return Courier Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,
@@ -3912,10 +4118,6 @@ export const returnPickedUp =
         order,
       });
     } catch (error) {
-      console.error(
-        "Return Pickup Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,
@@ -3988,10 +4190,6 @@ export const receiveReturnedProduct =
         order,
       });
     } catch (error) {
-      console.error(
-        "Receive Returned Product Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,
@@ -4093,10 +4291,6 @@ export const inspectReturnedProduct =
         order,
       });
     } catch (error) {
-      console.error(
-        "Inspect Returned Product Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,
@@ -4238,10 +4432,6 @@ export const completeRefund =
         order,
       });
     } catch (error) {
-      console.error(
-        "Complete Refund Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,
@@ -4558,10 +4748,6 @@ export const getSellerAnalytics =
         },
       });
     } catch (error) {
-      console.error(
-        "Seller Analytics Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,
@@ -4682,10 +4868,6 @@ export const getSellerOrders =
           sellerOrders,
       });
     } catch (error) {
-      console.error(
-        "Get Seller Orders Error:",
-        error,
-      );
 
       return res.status(500).json({
         success: false,

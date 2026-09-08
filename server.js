@@ -29,6 +29,7 @@ import razorpayWebhookRoutes
 import serviceabilityRoutes from "./routes/serviceabilityRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
 import financeRoutes from "./routes/financeRoutes.js";
+import promotionRoutes from "./routes/promotionRoutes.js";
 dotenv.config();
 
 
@@ -212,7 +213,10 @@ app.use(
   brandRoutes
 );
 
-
+app.use(
+  "/api/promotions",
+  promotionRoutes
+);
 /* =====================================================
    COURIER
 ===================================================== */

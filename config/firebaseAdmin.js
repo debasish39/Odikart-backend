@@ -14,28 +14,6 @@ import {
 
 
 /* =========================================
-   CHECK ENV VARIABLES
-========================================= */
-
-console.log(
-  "Firebase Project:",
-  process.env.FIREBASE_PROJECT_ID
-);
-
-console.log(
-  "Firebase Client Email:",
-  process.env.FIREBASE_CLIENT_EMAIL
-);
-
-console.log(
-  "Firebase Private Key:",
-  process.env.FIREBASE_PRIVATE_KEY
-    ? "Loaded"
-    : "NOT LOADED"
-);
-
-
-/* =========================================
    VALIDATE
 ========================================= */
 
