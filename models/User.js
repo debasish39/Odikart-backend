@@ -8,46 +8,35 @@ const userSchema = new mongoose.Schema(
 
     firstName: {
       type: String,
-
-      required: true,
-
+      default: "",
       trim: true,
     },
 
     lastName: {
       type: String,
-
       default: "",
-
       trim: true,
     },
 
     username: {
       type: String,
-
       unique: true,
-
       sparse: true,
-
       trim: true,
     },
 
     email: {
       type: String,
-
-      required: true,
-
       unique: true,
-
+      sparse: true,
       lowercase: true,
-
       trim: true,
+      default: null,
     },
 
     password: {
       type: String,
-
-      required: true,
+      default: null,
       minlength: 6,
     },
 
@@ -57,8 +46,20 @@ const userSchema = new mongoose.Schema(
 
     phone: {
       type: String,
-
       default: "",
+      trim: true,
+    },
+
+    /* =====================================
+       FIREBASE
+    ===================================== */
+
+    firebaseUid: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+      trim: true,
     },
 
     /* =====================================
@@ -67,7 +68,6 @@ const userSchema = new mongoose.Schema(
 
     image: {
       type: String,
-
       default: "https://i.pravatar.cc/300",
     },
 
@@ -78,7 +78,13 @@ const userSchema = new mongoose.Schema(
     provider: {
       type: String,
 
-      enum: ["credentials", "google", "github", "facebook"],
+      enum: [
+        "credentials",
+        "firebase",
+        "google",
+        "github",
+        "facebook",
+      ],
 
       default: "credentials",
     },
@@ -89,13 +95,11 @@ const userSchema = new mongoose.Schema(
 
     otp: {
       type: String,
-
       default: null,
     },
 
     otpExpiry: {
       type: Date,
-
       default: null,
     },
 
@@ -105,19 +109,16 @@ const userSchema = new mongoose.Schema(
 
     isVerified: {
       type: Boolean,
-
       default: false,
     },
 
     isEmailVerified: {
       type: Boolean,
-
       default: false,
     },
 
     isPhoneVerified: {
       type: Boolean,
-
       default: false,
     },
 
@@ -127,17 +128,47 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ["user", "seller", "admin"],
+
+      enum: [
+        "user",
+        "seller",
+        "admin",
+      ],
+
       default: "user",
     },
-activeMode: {
-  type: String,
-  enum: ["customer", "seller", "admin"],
-  default: "customer",
-},
+
+    /* =====================================
+       ACTIVE MODE
+    ===================================== */
+
+    activeMode: {
+      type: String,
+
+      enum: [
+        "customer",
+        "seller",
+        "admin",
+      ],
+
+      default: "customer",
+    },
+
+    /* =====================================
+       SELLER STATUS
+    ===================================== */
+
     sellerStatus: {
       type: String,
-      enum: ["none", "pending", "approved", "rejected", "suspended"],
+
+      enum: [
+        "none",
+        "pending",
+        "approved",
+        "rejected",
+        "suspended",
+      ],
+
       default: "none",
     },
 
@@ -160,9 +191,10 @@ activeMode: {
       type: String,
       default: "",
     },
+
     /* =====================================
-   SELLER INFORMATION
-===================================== */
+       SELLER INFORMATION
+    ===================================== */
 
     sellerInfo: {
       store: {
@@ -189,9 +221,13 @@ activeMode: {
           type: String,
           default: "",
         },
+
         metaTitle: String,
+
         metaDescription: String,
+
         keywords: [String],
+
         description: {
           type: String,
           default: "",
@@ -199,15 +235,12 @@ activeMode: {
 
         address: {
           street: String,
-
           city: String,
-
           state: String,
-
           postcode: String,
-
           country: String,
         },
+
         website: {
           type: String,
           default: "",
@@ -233,6 +266,11 @@ activeMode: {
           default: false,
         },
       },
+
+      /* =====================================
+         BUSINESS
+      ===================================== */
+
       business: {
         businessType: {
           type: String,
@@ -254,6 +292,11 @@ activeMode: {
 
         registrationNumber: String,
       },
+
+      /* =====================================
+         ANALYTICS
+      ===================================== */
+
       analytics: {
         totalProducts: {
           type: Number,
@@ -300,10 +343,22 @@ activeMode: {
           default: 0,
         },
       },
+
+      /* =====================================
+         SUBSCRIPTION
+      ===================================== */
+
       subscription: {
         plan: {
           type: String,
-          enum: ["Free", "Silver", "Gold", "Platinum"],
+
+          enum: [
+            "Free",
+            "Silver",
+            "Gold",
+            "Platinum",
+          ],
+
           default: "Free",
         },
 
@@ -327,6 +382,11 @@ activeMode: {
           default: 100,
         },
       },
+
+      /* =====================================
+         WALLET
+      ===================================== */
+
       wallet: {
         availableBalance: {
           type: Number,
@@ -348,10 +408,16 @@ activeMode: {
           default: null,
         },
       },
+
+      /* =====================================
+         APPROVAL HISTORY
+      ===================================== */
+
       approvalHistory: [
         {
           action: {
             type: String,
+
             enum: [
               "applied",
               "verified",
@@ -375,6 +441,11 @@ activeMode: {
           },
         },
       ],
+
+      /* =====================================
+         STORE RATING
+      ===================================== */
+
       storeRating: {
         average: {
           type: Number,
@@ -386,6 +457,11 @@ activeMode: {
           default: 0,
         },
       },
+
+      /* =====================================
+         SHIPPING
+      ===================================== */
+
       shipping: {
         freeShipping: {
           type: Boolean,
@@ -402,6 +478,11 @@ activeMode: {
           default: 7,
         },
       },
+
+      /* =====================================
+         NOTIFICATIONS
+      ===================================== */
+
       notificationSettings: {
         email: {
           type: Boolean,
@@ -418,10 +499,21 @@ activeMode: {
           default: true,
         },
       },
+
+      /* =====================================
+         SELLER VERIFICATION
+      ===================================== */
+
       verification: {
         status: {
           type: String,
-          enum: ["pending", "approved", "rejected"],
+
+          enum: [
+            "pending",
+            "approved",
+            "rejected",
+          ],
+
           default: "pending",
         },
 
@@ -437,41 +529,43 @@ activeMode: {
           default: "",
         },
       },
+
+      /* =====================================
+         BADGES
+      ===================================== */
+
       badges: [
         {
           type: String,
 
           enum: [
             "Trusted",
-
             "Top Seller",
-
             "Fast Shipping",
-
             "Premium",
-
             "Verified",
           ],
         },
       ],
+
+      /* =====================================
+         KYC
+      ===================================== */
+
       kyc: {
         aadhaar: {
           number: String,
-
           frontImage: String,
-
           backImage: String,
         },
 
         pan: {
           number: String,
-
           image: String,
         },
 
         gst: {
           number: String,
-
           certificate: String,
         },
 
@@ -482,8 +576,8 @@ activeMode: {
     },
 
     /* =====================================
-   ADMIN INFO
-===================================== */
+       ADMIN INFO
+    ===================================== */
 
     adminInfo: {
       permissions: [
@@ -492,23 +586,14 @@ activeMode: {
 
           enum: [
             "manage_users",
-
             "manage_sellers",
-
             "manage_products",
-
             "manage_orders",
-
             "manage_categories",
-
             "manage_coupons",
-
             "manage_reviews",
-
             "manage_payments",
-
             "manage_banners",
-
             "manage_reports",
           ],
         },
@@ -526,12 +611,12 @@ activeMode: {
 
     isBlocked: {
       type: Boolean,
-
       default: false,
     },
+
     /* =====================================
-   ACCOUNT DELETION
-===================================== */
+       ACCOUNT DELETION
+    ===================================== */
 
     isDeleted: {
       type: Boolean,
@@ -542,9 +627,9 @@ activeMode: {
       type: Date,
       default: null,
     },
+
     blockedAt: {
       type: Date,
-
       default: null,
     },
 
@@ -554,7 +639,6 @@ activeMode: {
 
     lastLogin: {
       type: Date,
-
       default: null,
     },
 
@@ -564,13 +648,11 @@ activeMode: {
 
     resetPasswordOTP: {
       type: String,
-
       default: null,
     },
 
     resetPasswordOTPExpiry: {
       type: Date,
-
       default: null,
     },
 
@@ -580,13 +662,9 @@ activeMode: {
 
     address: {
       street: String,
-
       city: String,
-
       state: String,
-
       postcode: String,
-
       country: String,
     },
 
@@ -596,44 +674,61 @@ activeMode: {
 
     socialLinks: {
       instagram: String,
-
       twitter: String,
-
       linkedin: String,
-
       github: String,
-
       website: String,
     },
   },
 
   {
     timestamps: true,
-  },
+  }
 );
+
+/* =====================================
+   JSON TRANSFORM
+===================================== */
+
 userSchema.set("toJSON", {
   transform: (doc, ret) => {
     const formatDate = (date) => {
       if (!date) return null;
 
-      return new Intl.DateTimeFormat("en-IN", {
-        timeZone: "Asia/Kolkata",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }).format(new Date(date));
+      return new Intl.DateTimeFormat(
+        "en-IN",
+        {
+          timeZone: "Asia/Kolkata",
+
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }
+      ).format(new Date(date));
     };
 
-    ret.createdAt = formatDate(ret.createdAt);
-    ret.updatedAt = formatDate(ret.updatedAt);
-    ret.lastLogin = formatDate(ret.lastLogin);
+    ret.createdAt =
+      formatDate(ret.createdAt);
+
+    ret.updatedAt =
+      formatDate(ret.updatedAt);
+
+    ret.lastLogin =
+      formatDate(ret.lastLogin);
 
     return ret;
   },
 });
-const User = mongoose.model("User", userSchema);
+
+const User =
+  mongoose.models.User ||
+  mongoose.model(
+    "User",
+    userSchema
+  );
 
 export default User;

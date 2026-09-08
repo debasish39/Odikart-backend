@@ -3559,11 +3559,8 @@ export const createProduct = async (req, res) => {
 /* =====================================
    GET ALL PRODUCTS
 ===================================== */
-
-
 export const getProducts = async (req, res) => {
   try {
-
     /* =====================================
        PAGINATION
     ===================================== */
@@ -3575,351 +3572,129 @@ export const getProducts = async (req, res) => {
     } = getPagination(req);
 
     /* =====================================
-       FILTERS
+       BASIC QUERY
     ===================================== */
 
-   const query = {
-  isDeleted: false,
-  isActive: true,
-  status: "approved"
-};
+    const query = {
+      isDeleted: false,
+      isActive: true,
+      status: "approved",
+    };
 
- /* =====================================
-   CATEGORY FILTER
-===================================== */
+    /* =====================================
+       CATEGORY FILTER
+    ===================================== */
 
-if (req.query.category) {
+    if (req.query.category) {
+      let value = req.query.category;
 
-  let value = req.query.category;
+      if (Array.isArray(value)) {
+        value = value[0];
+      }
 
-  // Handle category sent as an array
-  if (Array.isArray(value)) {
-    value = value[0];
-  }
+      value = String(value).trim();
 
-  // Convert to string and trim
-  value = String(value).trim();
+      if (
+        mongoose.Types.ObjectId.isValid(value)
+      ) {
+        query.category =
+          new mongoose.Types.ObjectId(value);
+      } else {
+        const category =
+          await Category.findOne({
+            name: {
+              $regex: `^${escapeRegex(value)}$`,
+              $options: "i",
+            },
+          }).select("_id");
 
-  if (mongoose.Types.ObjectId.isValid(value)) {
-    query.category = new mongoose.Types.ObjectId(value);
-  } else {
-    const category = await Category.findOne({
-      name: { $regex: `^${value}$`, $options: "i" },
-    });
+        if (!category) {
+          return res.status(200).json({
+            success: true,
+            total: 0,
+            totalPages: 0,
+            currentPage: page,
+            limit,
+            products: [],
+          });
+        }
 
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found",
-      });
+        query.category = category._id;
+      }
     }
 
-    query.category = category._id;
-  }
-}
     /* =====================================
        BRAND FILTER
     ===================================== */
 
     if (req.query.brand) {
-
       query.brand = {
-        $regex: escapeRegex(req.query.brand),
+        $regex: escapeRegex(
+          req.query.brand
+        ),
         $options: "i",
       };
-
     }
 
     /* =====================================
-       SEARCH FILTER
+       SEARCH
     ===================================== */
 
-    if (req.query.search) {
+    const searchValue = cleanString(
+      req.query.search,
+      100
+    );
 
-      query.title = {
-        $regex: escapeRegex(req.query.search),
-        $options: "i",
-      };
-
-    }
-
-    /* =====================================
-       PRICE FILTER
-    ===================================== */
-
-    if (
-
-      req.query.minPrice ||
-
-      req.query.maxPrice
-
-    ) {
-
-      const minPrice =
-        req.query.minPrice !== undefined
-          ? Number(req.query.minPrice)
-          : undefined;
-
-      const maxPrice =
-        req.query.maxPrice !== undefined
-          ? Number(req.query.maxPrice)
-          : undefined;
-
-      if (
-        minPrice !== undefined &&
-        (!Number.isFinite(minPrice) || minPrice < 0)
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid minimum price",
-        });
-      }
-
-      if (
-        maxPrice !== undefined &&
-        (!Number.isFinite(maxPrice) || maxPrice < 0)
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid maximum price",
-        });
-      }
-
-      if (
-        minPrice !== undefined &&
-        maxPrice !== undefined &&
-        minPrice > maxPrice
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Minimum price cannot exceed maximum price",
-        });
-      }
-
-      query.variants = {
-        $elemMatch: {
-          ...(minPrice !== undefined
-            ? { price: { $gte: minPrice } }
-            : {}),
-          ...(maxPrice !== undefined
-            ? { price: { $lte: maxPrice } }
-            : {}),
-        },
-      };
-
-    }
+    const searchRegex = searchValue
+      ? new RegExp(
+          escapeRegex(searchValue),
+          "i"
+        )
+      : null;
 
     /* =====================================
-       STOCK FILTER
-    ===================================== */
-
-    if (
-
-      req.query.inStock ===
-      "true"
-
-    ) {
-
-      query["variants.stock"] = {
-        $gt: 0,
-      };
-
-    }
-
-    /* =====================================
-       FEATURED FILTER
-    ===================================== */
-
-    if (
-
-      req.query.featured ===
-      "true"
-
-    ) {
-
-      query.featured = true;
-
-    }
-
-    /* =====================================
-       TRENDING FILTER
-    ===================================== */
-
-    if (
-
-      req.query.trending ===
-      "true"
-
-    ) {
-
-      query.trending = true;
-
-    }
-
-    /* =====================================
-       BEST SELLER FILTER
-    ===================================== */
-
-    if (
-
-      req.query.bestSeller ===
-      "true"
-
-    ) {
-
-      query.bestSeller = true;
-
-    }
-
-    /* =====================================
-       NEW ARRIVAL FILTER
-    ===================================== */
-
-    if (
-
-      req.query.isNewArrival ===
-      "true"
-
-    ) {
-
-      query.isNewArrival = true;
-
-    }
-
-    /* =====================================
-       POPULAR FILTER
-    ===================================== */
-
-    if (
-      req.query.popular ===
-      "true"
-    ) {
-      query.isPopular = true;
-    }
-
-    /* =====================================
-       RECOMMENDED FILTER
-    ===================================== */
-
-    if (
-      req.query.recommended ===
-      "true"
-    ) {
-      query.isRecommended = true;
-    }
-
-    /* =====================================
-       FLASH SALE FILTER
-    ===================================== */
-
-    if (
-      req.query.flashSale ===
-      "true"
-    ) {
-      const now = new Date();
-
-      query["offer.enabled"] = true;
-      query["offer.startDate"] = {
-        $lte: now,
-      };
-      query["offer.endDate"] = {
-        $gte: now,
-      };
-    }
-
-    /* =====================================
-       DEAL FILTER
-    ===================================== */
-
-    if (
-      req.query.deal ===
-      "true"
-    ) {
-      const now = new Date();
-
-      query["offer.enabled"] = true;
-      query["offer.startDate"] = {
-        $lte: now,
-      };
-      query["offer.endDate"] = {
-        $gte: now,
-      };
-      query["offer.value"] = {
-        $gt: 0,
-      };
-    }
-
-    /* =====================================
-       LOW STOCK FILTER
-    ===================================== */
-
-    if (
-      req.query.lowStock ===
-      "true"
-    ) {
-      query["variants.stock"] = {
-        $gt: 0,
-        $lte: 5,
-      };
-    }
-
-    /* =====================================
-       SORTING
+       SORT
     ===================================== */
 
     let sortOption = {
-
       createdAt: -1,
-
     };
 
     if (
-
-      req.query.sort ===
-      "low-high"
-
+      req.query.sort === "low-high"
     ) {
-
-      sortOption["variants.price"] = 1;
-
+      sortOption = {
+        "variants.price": 1,
+      };
     }
 
     if (
-
-      req.query.sort ===
-      "high-low"
-
+      req.query.sort === "high-low"
     ) {
-
-      sortOption["variants.price"] = -1;
-
+      sortOption = {
+        "variants.price": -1,
+      };
     }
 
     if (
-
-      req.query.sort ===
-      "rating"
-
+      req.query.sort === "rating"
     ) {
-
-      sortOption.rating = -1;
-
+      sortOption = {
+        rating: -1,
+        createdAt: -1,
+      };
     }
 
     if (
-
-      req.query.sort ===
-      "newest"
-
+      req.query.sort === "newest"
     ) {
-
-      sortOption.createdAt = -1;
-
+      sortOption = {
+        createdAt: -1,
+      };
     }
 
     if (
-      req.query.sort ===
-      "trending"
+      req.query.sort === "trending"
     ) {
       sortOption = {
         "analytics.trendingScore": -1,
@@ -3929,8 +3704,7 @@ if (req.query.category) {
     }
 
     if (
-      req.query.sort ===
-      "best-selling"
+      req.query.sort === "best-selling"
     ) {
       sortOption = {
         "analytics.sales": -1,
@@ -3940,8 +3714,7 @@ if (req.query.category) {
     }
 
     if (
-      req.query.sort ===
-      "popular"
+      req.query.sort === "popular"
     ) {
       sortOption = {
         "analytics.popularityScore": -1,
@@ -3951,96 +3724,170 @@ if (req.query.category) {
     }
 
     /* =====================================
-       FETCH PRODUCTS
+       LOG
     ===================================== */
-
-//    const products = await Product.find(query)
-// .populate(
-//   "category",
-//   "name slug image"
-// )
-// .populate(
-//   "subCategory",
-//   "name slug"
-// )
-// .populate(
-//   "seller",
-//   "firstName lastName email image"
-// )
-
-//       .sort(sortOption)
-
-//       .skip(skip)
-
-//       .limit(limit)
-
-//       .lean();
-console.log(
-  "======================================"
-);
-
-console.log(
-  "🛍️ CUSTOMER PRODUCTS QUERY"
-);
-
-console.log(
-  "Query:",
-  query
-);
-
-console.log(
-  "======================================"
-);
-const products = await Product.find(query)
-  .populate("category", "name slug image")
-  .populate("subCategory", "name slug")
-  .populate("seller", "firstName lastName email image")
-  .sort(sortOption)
-  .skip(skip)
-  .limit(limit)
-  .lean();
-  console.log(
-  "✅ CUSTOMER PRODUCTS FOUND:",
-  products.length
-);
-
-products.forEach(
-  (product) => {
 
     console.log(
-      "Customer product:",
-      {
-        id:
-          product._id,
-
-        title:
-          product.title,
-
-        status:
-          product.status,
-
-        isActive:
-          product.isActive,
-
-        isDeleted:
-          product.isDeleted,
-      }
+      "\n======================================"
     );
 
-  }
-);
+    console.log(
+      "🛍️ CUSTOMER PRODUCTS QUERY"
+    );
+
+    console.log(
+      "Search:",
+      searchValue || "NONE"
+    );
+
+    console.log(
+      "Base Query:",
+      query
+    );
+
+    console.log(
+      "======================================"
+    );
+
     /* =====================================
-       TOTAL
+       AGGREGATION
     ===================================== */
 
-    const total =
-      await Product.countDocuments(
-        query
+    const pipeline = [
+      {
+        $match: query,
+      },
+
+      /* ================================
+         CATEGORY
+      ================================= */
+
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "categoryData",
+        },
+      },
+
+      {
+        $unwind: {
+          path: "$categoryData",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+
+      /* ================================
+         SUB CATEGORY
+      ================================= */
+
+      {
+        $lookup: {
+          from: "subcategories",
+          localField: "subCategory",
+          foreignField: "_id",
+          as: "subCategoryData",
+        },
+      },
+
+      {
+        $unwind: {
+          path: "$subCategoryData",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+    ];
+
+    /* =====================================
+       SEARCH MATCH
+    ===================================== */
+
+    if (searchRegex) {
+      pipeline.push({
+        $match: {
+          $or: [
+            {
+              title: searchRegex,
+            },
+
+            {
+              description: searchRegex,
+            },
+
+            {
+              shortDescription:
+                searchRegex,
+            },
+
+            {
+              brand: searchRegex,
+            },
+
+            {
+              tags: searchRegex,
+            },
+
+            {
+              "categoryData.name":
+                searchRegex,
+            },
+
+            {
+              "subCategoryData.name":
+                searchRegex,
+            },
+          ],
+        },
+      });
+    }
+
+    /* =====================================
+       SORT
+    ===================================== */
+
+    pipeline.push({
+      $sort: sortOption,
+    });
+
+    /* =====================================
+       PAGINATION
+    ===================================== */
+
+    pipeline.push({
+      $facet: {
+        products: [
+          {
+            $skip: skip,
+          },
+
+          {
+            $limit: limit,
+          },
+        ],
+
+        total: [
+          {
+            $count: "count",
+          },
+        ],
+      },
+    });
+
+    /* =====================================
+       EXECUTE
+    ===================================== */
+
+    const result =
+      await Product.aggregate(
+        pipeline
       );
 
-    /* =====================================
-       TOTAL PAGES
-    ===================================== */
+    const products =
+      result?.[0]?.products || [];
+
+    const total =
+      result?.[0]?.total?.[0]?.count || 0;
 
     const totalPages =
       Math.ceil(
@@ -4048,11 +3895,46 @@ products.forEach(
       );
 
     /* =====================================
+       LOG RESULTS
+    ===================================== */
+
+    console.log(
+      "🔎 Search:",
+      searchValue || "NONE"
+    );
+
+    console.log(
+      "✅ CUSTOMER PRODUCTS FOUND:",
+      products.length
+    );
+
+    console.log(
+      "✅ TOTAL MATCHING PRODUCTS:",
+      total
+    );
+
+    products.forEach(
+      (product) => {
+        console.log(
+          "Customer product:",
+          {
+            id: product._id,
+            title: product.title,
+            brand: product.brand,
+            category:
+              product.categoryData?.name,
+            subCategory:
+              product.subCategoryData?.name,
+          }
+        );
+      }
+    );
+
+    /* =====================================
        RESPONSE
     ===================================== */
 
-    res.status(200).json({
-
+    return res.status(200).json({
       success: true,
 
       total,
@@ -4064,46 +3946,31 @@ products.forEach(
       limit,
 
       products,
-
-      discovery: {
-        supports: [
-          "trending",
-          "best-seller",
-          "popular",
-          "top-rated",
-          "new-arrival",
-          "featured",
-          "recommended",
-          "flash-sale",
-          "deal",
-          "low-stock",
-        ],
-      },
-
     });
 
   } catch (error) {
 
     console.error(
-
       "Get Products Error:",
-
       error
-
     );
 
-    res.status(500).json({
-
+    return res.status(500).json({
       success: false,
 
       message:
         "An unexpected error occurred",
 
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? error?.message
+          : undefined,
     });
-
   }
-
 };
+
+
 
 
 /* =====================================

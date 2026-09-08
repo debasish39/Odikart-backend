@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import generateOTP from "../utils/generateOTP.js";
 import generateToken from "../utils/generateToken.js";
 import sendEmailOTP from "../utils/sendEmailOTP.js";
-
+import firebaseAuth from "../config/firebaseAdmin.js";
 /* =========================================================
    SECURITY CONFIGURATION
 ========================================================= */
@@ -1403,6 +1403,374 @@ export const signinWithPassword =
         res,
         error,
         "Password Login Error"
+      );
+
+    }
+
+  };
+
+
+  /* =========================================================
+   FIREBASE PHONE LOGIN
+========================================================= */
+
+export const firebasePhoneLogin =
+  async (req, res) => {
+
+    try {
+
+      /* =====================================
+         GET FIREBASE TOKEN
+      ===================================== */
+
+      const authHeader =
+        req.headers.authorization;
+
+
+      if (
+        !authHeader ||
+        !authHeader.startsWith("Bearer ")
+      ) {
+
+        return res.status(401).json({
+          success: false,
+          message:
+            "Firebase ID token is required",
+        });
+
+      }
+
+
+      const firebaseToken =
+        authHeader
+          .substring(7)
+          .trim();
+
+
+      if (!firebaseToken) {
+
+        return res.status(401).json({
+          success: false,
+          message:
+            "Firebase token is required",
+        });
+
+      }
+
+
+      /* =====================================
+         APPLICATION MODE
+      ===================================== */
+
+      const app =
+        String(
+          req.body?.app || "customer"
+        )
+          .trim()
+          .toLowerCase();
+
+
+      if (
+        !["customer", "seller"].includes(app)
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid application",
+        });
+
+      }
+
+
+      /* =====================================
+         VERIFY FIREBASE TOKEN
+      ===================================== */
+
+      let decodedToken;
+
+      try {
+
+        decodedToken =
+          await firebaseAuth.verifyIdToken(
+            firebaseToken
+          );
+
+      } catch (error) {
+
+        console.error(
+          "Firebase Verify Error:",
+          error
+        );
+
+        return res.status(401).json({
+          success: false,
+          message:
+            "Invalid Firebase token",
+        });
+
+      }
+
+
+      const firebaseUid =
+        decodedToken.uid;
+
+      const phone =
+        decodedToken.phone_number || "";
+
+      const firebaseEmail =
+        decodedToken.email || null;
+
+
+      if (!firebaseUid) {
+
+        return res.status(401).json({
+          success: false,
+          message:
+            "Firebase UID missing",
+        });
+
+      }
+
+
+      if (!phone) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Verified phone number not found",
+        });
+
+      }
+
+
+      /* =====================================
+         FIND USER BY FIREBASE UID
+      ===================================== */
+
+      let user =
+        await User.findOne({
+          firebaseUid,
+        });
+
+
+      /* =====================================
+         FALLBACK BY PHONE
+      ===================================== */
+
+      if (!user) {
+
+        user =
+          await User.findOne({
+            phone,
+            isDeleted: false,
+          });
+
+      }
+
+
+      let isNewUser = false;
+
+
+      /* =====================================
+         CREATE NEW CUSTOMER
+      ===================================== */
+
+      if (!user) {
+
+        user =
+          await User.create({
+
+            firebaseUid,
+
+            phone,
+
+            email:
+              firebaseEmail,
+
+            provider:
+              "firebase",
+
+            firstName: "",
+
+            lastName: "",
+
+            password: null,
+
+            role: "user",
+
+            activeMode:
+              "customer",
+
+            isVerified: true,
+
+            isPhoneVerified: true,
+
+            isEmailVerified:
+              Boolean(firebaseEmail),
+
+            lastLogin:
+              new Date(),
+
+          });
+
+        isNewUser = true;
+
+      }
+
+
+      /* =====================================
+         EXISTING USER
+      ===================================== */
+
+      else {
+
+        if (user.isDeleted) {
+
+          return res.status(403).json({
+            success: false,
+            message:
+              "This account has been deleted",
+          });
+
+        }
+
+
+        if (user.isBlocked) {
+
+          return res.status(403).json({
+            success: false,
+            message:
+              "This account is blocked",
+          });
+
+        }
+
+
+        user.firebaseUid =
+          firebaseUid;
+
+        user.phone =
+          phone;
+
+        user.provider =
+          "firebase";
+
+        user.isVerified =
+          true;
+
+        user.isPhoneVerified =
+          true;
+
+        user.lastLogin =
+          new Date();
+
+        await user.save();
+
+      }
+
+
+      /* =====================================
+         SELLER LOGIN
+      ===================================== */
+
+      if (app === "seller") {
+
+        if (user.role !== "seller") {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "This account is not a seller",
+
+          });
+
+        }
+
+
+        if (
+          user.sellerStatus !== "approved"
+        ) {
+
+          return res.status(403).json({
+
+            success: false,
+
+            message:
+              "Seller account is not approved",
+
+            sellerStatus:
+              user.sellerStatus,
+
+            sellerVerificationStatus:
+              user.sellerInfo
+                ?.verification
+                ?.status || "pending",
+
+          });
+
+        }
+
+
+        user.activeMode =
+          "seller";
+
+      }
+
+      else {
+
+        user.activeMode =
+          "customer";
+
+      }
+
+
+      await user.save();
+
+
+      /* =====================================
+         GENERATE ODIKART JWT
+      ===================================== */
+
+      const token =
+        generateToken(
+          user,
+          app
+        );
+
+
+      /* =====================================
+         SUCCESS RESPONSE
+      ===================================== */
+
+      return res.status(200).json({
+
+        success: true,
+
+        message:
+          "Phone login successful",
+
+        token,
+
+        isNewUser,
+
+        firebaseUid,
+
+        user:
+          safeAuthResponse(user),
+
+      });
+
+    }
+
+    catch (error) {
+
+      return unexpectedError(
+        res,
+        error,
+        "Firebase Phone Login Error"
       );
 
     }
