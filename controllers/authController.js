@@ -7,6 +7,7 @@ import sendEmailOTP from "../utils/sendEmailOTP.js";
 import firebaseAuth from "../config/firebaseAdmin.js";
 import Referral from "../models/Referral.js";
 import generateReferralCode from "../utils/generateReferralCode.js";
+import Notification from "../models/Notification.js";
 /* =========================================================
    SECURITY CONFIGURATION
 ========================================================= */
@@ -440,6 +441,31 @@ const getAuthenticatedUser =
 
     return User.findById(id);
   };
+
+/* =========================================================
+   CREATE WELCOME NOTIFICATION
+========================================================= */
+
+const createWelcomeNotification = async (user) => {
+  if (!user?._id) return;
+
+  try {
+    await Notification.create({
+      userId: user._id,
+      type: "account",
+      title: "Welcome to OdiKart! 🎉",
+      message: `Thanks for joining OdiKart, ${
+        user.firstName || "there"
+      }! Your account has been successfully created.`,
+      link: "/account",
+      isRead: false,
+      isPromotional: false,
+    });
+  } catch (error) {
+    // Notification failure must not invalidate a successful signup.
+    console.error("Welcome Notification Error:", error);
+  }
+};
 
 /* =========================================================
    RESEND SIGNUP OTP
@@ -975,6 +1001,8 @@ export const verifySignupOTP =
         null;
 
       await user.save();
+
+      await createWelcomeNotification(user);
 
       clearOtpAttempts(
         "signup-verify",
@@ -1698,6 +1726,8 @@ export const firebasePhoneLogin =
           });
 
         isNewUser = true;
+
+        await createWelcomeNotification(user);
 
       }
 
