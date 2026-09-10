@@ -30,6 +30,7 @@ import serviceabilityRoutes from "./routes/serviceabilityRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
 import financeRoutes from "./routes/financeRoutes.js";
 import promotionRoutes from "./routes/promotionRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
 dotenv.config();
 
 
@@ -245,7 +246,7 @@ app.use(
   "/api/auth",
   authRoutes
 );
-
+app.use("/api/notifications", notificationRoutes);
 
 /* =====================================================
    PRODUCTS

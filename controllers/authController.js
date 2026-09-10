@@ -5,6 +5,8 @@ import generateOTP from "../utils/generateOTP.js";
 import generateToken from "../utils/generateToken.js";
 import sendEmailOTP from "../utils/sendEmailOTP.js";
 import firebaseAuth from "../config/firebaseAdmin.js";
+import Referral from "../models/Referral.js";
+import generateReferralCode from "../utils/generateReferralCode.js";
 /* =========================================================
    SECURITY CONFIGURATION
 ========================================================= */
@@ -592,6 +594,11 @@ export const signup = async (
         MAX_PHONE_LENGTH
       );
 
+    const referralCode = normalizeString(
+      req.body?.referralCode,
+      30
+    ).toUpperCase();
+
     /*
       NEVER accept role from the client.
 
@@ -694,6 +701,28 @@ export const signup = async (
       });
     }
 
+    /* =====================================================
+       REFERRAL VALIDATION
+    ===================================================== */
+
+    let referrer = null;
+
+    if (referralCode) {
+      referrer = await User.findOne({
+        "referral.referralCode": referralCode,
+        role: "user",
+        isBlocked: false,
+        isDeleted: false,
+      });
+
+      if (!referrer) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid referral code",
+        });
+      }
+    }
+
     const hashedPassword =
       await bcrypt.hash(
         password,
@@ -733,6 +762,11 @@ export const signup = async (
       isEmailVerified: false,
       isPhoneVerified: false,
       activeMode: app,
+
+      referral: {
+        referralCode: generateReferralCode(),
+        referredBy: referrer?._id || null,
+      },
     };
 
     if (
@@ -763,6 +797,22 @@ export const signup = async (
       await User.create(
         userData
       );
+
+    /*
+      Referral record is intentionally created only for customer
+      accounts. The reward is NOT given at signup.
+      It will be granted only after the qualifying order completes.
+    */
+    if (referrer && userRole === "user") {
+      await Referral.create({
+        referrer: referrer._id,
+        referredUser: user._id,
+        referralCode,
+        status: "registered",
+        friendCouponAmount: 100,
+        referrerRewardAmount: 100,
+      });
+    }
 
     await sendEmailOTP(
       email,
@@ -1484,6 +1534,34 @@ export const firebasePhoneLogin =
 
 
       /* =====================================
+         REFERRAL CODE
+      ===================================== */
+
+      const referralCode = normalizeString(
+        req.body?.referralCode,
+        30
+      ).toUpperCase();
+
+      let referrer = null;
+
+      if (referralCode) {
+        referrer = await User.findOne({
+          "referral.referralCode": referralCode,
+          role: "user",
+          isBlocked: false,
+          isDeleted: false,
+        });
+
+        if (!referrer) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid referral code",
+          });
+        }
+      }
+
+
+      /* =====================================
          VERIFY FIREBASE TOKEN
       ===================================== */
 
@@ -1611,6 +1689,11 @@ export const firebasePhoneLogin =
 
             lastLogin:
               new Date(),
+
+            referral: {
+              referralCode: generateReferralCode(),
+              referredBy: referrer?._id || null,
+            },
 
           });
 

@@ -13,6 +13,9 @@ import { sendWhatsApp } from "../utils/sendWhatsApp.js";
 import { generateOrderNumber } from "../utils/generateOrderNumber.js";
 import { creditSellerWallet } from "../utils/walletService.js";
 import { generateTrackingNumber } from "../utils/generateTrackingNumber.js";
+import Referral from "../models/Referral.js";
+import { processPendingReferralRewards } from "../utils/referralRewardService.js";
+import { createOrderNotification } from "../utils/notificationService.js";
 /* =========================================================
    CUSTOM ORDER VALIDATION ERROR
 ========================================================= */
@@ -77,6 +80,10 @@ const CANCELLABLE_STATUSES = [
 ];
 
 const COMMISSION_RATE = 10;
+
+// Referral qualification settings
+const REFERRAL_RETURN_WINDOW_DAYS = 7;
+const REFERRAL_MIN_ORDER_AMOUNT = Number(process.env.REFERRAL_MIN_ORDER_AMOUNT || 499);
 
 const TRACK_ORDER_URL = "https://odikart.in/track-order";
 
@@ -2084,6 +2091,33 @@ export const cancelOrder = async (
     });
 
     /* =====================================================
+       WEBSITE / IN-APP CANCELLATION NOTIFICATION
+    ===================================================== */
+
+    try {
+      console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
+
+console.log({
+  orderId: order._id?.toString(),
+  orderNumber: order.orderNumber,
+  orderUserId: order.userId?.toString(),
+  newStatus: status,
+});
+      await createOrderNotification({
+        userId: order.userId,
+        orderId: order._id,
+        title: "Order Cancelled ❌",
+        message: `Your order ${order.orderNumber} has been cancelled successfully.`,
+        link: `/orders/${order._id}`,
+      });
+    } catch (notificationError) {
+      console.error(
+        "Website cancellation notification failed:",
+        notificationError
+      );
+    }
+
+    /* =====================================================
        EMAIL
     ===================================================== */
 
@@ -2878,6 +2912,26 @@ export const updateOrderStatus = async (
       });
     }
 
+    if (status === "Return Requested") {
+      if (!order.deliveredAt) {
+        return res.status(400).json({
+          success: false,
+          message: "Delivery date is missing",
+        });
+      }
+
+      const returnDeadline =
+        new Date(order.deliveredAt).getTime() +
+        REFERRAL_RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+      if (Date.now() > returnDeadline) {
+        return res.status(400).json({
+          success: false,
+          message: `Return window has expired after ${REFERRAL_RETURN_WINDOW_DAYS} days`,
+        });
+      }
+    }
+
     /* =====================================================
        UPDATE
     ===================================================== */
@@ -2948,6 +3002,153 @@ export const updateOrderStatus = async (
     );
 
     await order.save();
+
+    /* =====================================================
+       WEBSITE / IN-APP ORDER NOTIFICATION
+       Notification failure must never fail the order update.
+    ===================================================== */
+
+    try {
+      const orderNotificationMap = {
+        Confirmed: {
+          title: "Order Confirmed 🎉",
+          message: `Your order ${order.orderNumber} has been confirmed.`,
+        },
+
+        Processing: {
+          title: "Order Processing ⚙️",
+          message: `Your order ${order.orderNumber} is now being processed.`,
+        },
+
+        Packed: {
+          title: "Order Packed 📦",
+          message: `Your order ${order.orderNumber} has been packed and is ready for dispatch.`,
+        },
+
+        "Ready for Pickup": {
+          title: "Ready for Pickup 🚚",
+          message: `Your order ${order.orderNumber} is ready for courier pickup.`,
+        },
+
+        Shipped: {
+          title: "Order Shipped 🚚",
+          message: `Your order ${order.orderNumber} has been shipped.`,
+        },
+
+        "In Transit": {
+          title: "Order In Transit 📦",
+          message: `Your order ${order.orderNumber} is currently in transit.`,
+        },
+
+        "Out for Delivery": {
+          title: "Out for Delivery 🛵",
+          message: `Your order ${order.orderNumber} is out for delivery.`,
+        },
+
+        Delivered: {
+          title: "Order Delivered 🎉",
+          message: `Your order ${order.orderNumber} has been delivered successfully.`,
+        },
+
+        Cancelled: {
+          title: "Order Cancelled ❌",
+          message: `Your order ${order.orderNumber} has been cancelled.`,
+        },
+
+        "Return Requested": {
+          title: "Return Request Received ↩️",
+          message: `Your return request for order ${order.orderNumber} has been received.`,
+        },
+
+        "Return Approved": {
+          title: "Return Approved ✅",
+          message: `Your return request for order ${order.orderNumber} has been approved.`,
+        },
+
+        "Return Pickup Scheduled": {
+          title: "Return Pickup Scheduled 🚚",
+          message: `Pickup for your return ${order.orderNumber} has been scheduled.`,
+        },
+
+        "Return Picked Up": {
+          title: "Return Picked Up 📦",
+          message: `Your returned item for order ${order.orderNumber} has been picked up.`,
+        },
+
+        "Received by Admin": {
+          title: "Return Received 📦",
+          message: `Your returned item for order ${order.orderNumber} has been received.`,
+        },
+
+        Inspection: {
+          title: "Return Under Inspection 🔍",
+          message: `Your returned item for order ${order.orderNumber} is being inspected.`,
+        },
+
+        "Refund Processing": {
+          title: "Refund Processing 💰",
+          message: `Your refund for order ${order.orderNumber} is being processed.`,
+        },
+
+        "Refund Completed": {
+          title: "Refund Completed 💰",
+          message: `Your refund for order ${order.orderNumber} has been completed.`,
+        },
+
+        "Return Rejected": {
+          title: "Return Request Rejected",
+          message: `Your return request for order ${order.orderNumber} has been rejected.`,
+        },
+      };
+
+      const notification =
+        orderNotificationMap[status];
+
+      if (notification) {
+        console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
+
+console.log({
+  orderId: order._id?.toString(),
+  orderNumber: order.orderNumber,
+  orderUserId: order.userId?.toString(),
+  newStatus: status,
+});
+        await createOrderNotification({
+          userId: order.userId,
+          orderId: order._id,
+          title: notification.title,
+          message: notification.message,
+          link: `/orders/${order._id}`,
+        });
+      }
+    } catch (notificationError) {
+      console.error(
+        "Website order notification failed:",
+        notificationError
+      );
+    }
+
+    /* =====================================================
+       REFERRAL REWARD PROCESSOR
+
+       Delivery only records deliveredAt. The actual referral
+       reward is released by the scheduled processor after the
+       return-protection window has expired. Running the processor
+       here also allows already-qualified referrals to be picked
+       up whenever an order status endpoint is called.
+    ===================================================== */
+
+    if (status === "Delivered") {
+      try {
+        await processPendingReferralRewards({
+          limit: 20,
+          minOrderAmount: REFERRAL_MIN_ORDER_AMOUNT,
+          returnWindowDays: REFERRAL_RETURN_WINDOW_DAYS,
+        });
+      } catch (referralError) {
+        // Referral processing must never fail the order status update.
+      }
+    }
 
     /* =====================================================
        SELLER WALLET
@@ -3230,7 +3431,11 @@ export const assignCourier = async (req, res) => {
     /* =====================================================
        14. SAVE ORDER
     ===================================================== */
-
+console.log("📝 ABOUT TO SAVE ORDER", {
+  orderId: order._id?.toString(),
+  oldStatus: order.status,
+  newStatus: status,
+});
     await order.save();
 
     /* =====================================================
@@ -3701,6 +3906,30 @@ export const requestReturn = async (
 
         message:
           "Only delivered orders can be returned",
+      });
+    }
+
+    /* =====================================================
+       RETURN WINDOW
+       Customers can request a return only within the
+       configured return window from delivery.
+    ===================================================== */
+
+    if (!order.deliveredAt) {
+      return res.status(400).json({
+        success: false,
+        message: "Delivery date is missing",
+      });
+    }
+
+    const returnDeadline =
+      new Date(order.deliveredAt).getTime() +
+      REFERRAL_RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+    if (Date.now() > returnDeadline) {
+      return res.status(400).json({
+        success: false,
+        message: `Return window has expired after ${REFERRAL_RETURN_WINDOW_DAYS} days`,
       });
     }
 

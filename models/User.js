@@ -483,7 +483,12 @@ const userSchema = new mongoose.Schema(
          NOTIFICATIONS
       ===================================== */
 
-  notificationSettings: {
+notificationSettings: {
+  inApp: {
+    type: Boolean,
+    default: true,
+  },
+
   email: {
     type: Boolean,
     default: true,
@@ -619,7 +624,41 @@ const userSchema = new mongoose.Schema(
         default: "",
       },
     },
+/* =====================================
+   REFERRAL PROGRAM
+===================================== */
 
+referral: {
+  referralCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    uppercase: true,
+    trim: true,
+    index: true,
+  },
+
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+  },
+
+  referralRewardBalance: {
+    type: Number,
+    default: 0,
+  },
+
+  totalReferralEarnings: {
+    type: Number,
+    default: 0,
+  },
+
+  totalSuccessfulReferrals: {
+    type: Number,
+    default: 0,
+  },
+},
     /* =====================================
        ACCOUNT STATUS
     ===================================== */
