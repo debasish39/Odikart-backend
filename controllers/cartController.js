@@ -14,10 +14,15 @@ const MAX_TITLE_LENGTH = 200;
 const getUserId = (req) =>
   req.user?._id || req.user?.id;
 
-const isValidObjectId = (id) =>
-  Boolean(id) &&
-  mongoose.Types.ObjectId.isValid(id);
+const isValidObjectId = (id) => {
+  const value = String(id ?? "").trim();
 
+  return (
+    value.length === 24 &&
+    /^[0-9a-fA-F]{24}$/.test(value) &&
+    mongoose.Types.ObjectId.isValid(value)
+  );
+};
 const normalizeSku = (sku) =>
   String(sku ?? "").trim().slice(0, MAX_SKU_LENGTH);
 
@@ -713,17 +718,23 @@ export const addToCart = async (
       quantity = 1,
     } = req.body;
 
-    if (
-      !isValidObjectId(
-        productId
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Invalid product ID",
-      });
-    }
+const normalizedProductId = String(productId ?? "").trim();
+
+console.log("ADD TO CART PRODUCT ID:", {
+  productId,
+  normalizedProductId,
+  type: typeof productId,
+  length: normalizedProductId.length,
+  isValid: mongoose.Types.ObjectId.isValid(normalizedProductId),
+});
+
+if (!mongoose.Types.ObjectId.isValid(normalizedProductId)) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid product ID",
+    receivedProductId: normalizedProductId,
+  });
+}
 
     const normalizedQuantity =
       normalizeQuantity(
@@ -738,10 +749,10 @@ export const addToCart = async (
       });
     }
 
-    const product =
-      await findAvailableProduct(
-        productId
-      );
+const product =
+  await findAvailableProduct(
+    normalizedProductId
+  );
 
     if (!product) {
       return res.status(404).json({
