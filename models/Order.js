@@ -94,60 +94,108 @@ const orderSchema = new mongoose.Schema(
       },
 
       address: {
-        addressLine1: {
-          type: String,
-          required: true,
-          trim: true,
-        },
+  label: {
+    type: String,
+    default: "Home",
+    trim: true,
+  },
 
-        addressLine2: {
-          type: String,
-          default: "",
-          trim: true,
-        },
+  houseNumber: {
+    type: String,
+    default: "",
+    trim: true,
+  },
 
-        landmark: {
-          type: String,
-          default: "",
-          trim: true,
-        },
+  buildingName: {
+    type: String,
+    default: "",
+    trim: true,
+  },
 
-        area: {
-          type: String,
-          required: true,
-          trim: true,
-        },
+  floor: {
+    type: String,
+    default: "",
+    trim: true,
+  },
 
-        city: {
-          type: String,
-          required: true,
-          trim: true,
-        },
+  street: {
+    type: String,
+    default: "",
+    trim: true,
+  },
 
-        district: {
-          type: String,
-          required: true,
-          trim: true,
-        },
+  addressLine1: {
+    type: String,
+    required: true,
+    trim: true,
+  },
 
-        state: {
-          type: String,
-          required: true,
-          trim: true,
-        },
+  addressLine2: {
+    type: String,
+    default: "",
+    trim: true,
+  },
 
-        postalCode: {
-          type: String,
-          required: true,
-          match: /^[1-9][0-9]{5}$/,
-        },
+  landmark: {
+    type: String,
+    default: "",
+    trim: true,
+  },
 
-        country: {
-          type: String,
-          default: "India",
-          trim: true,
-        },
-      },
+  area: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  village: {
+    type: String,
+    default: "",
+    trim: true,
+  },
+
+  postOffice: {
+    type: String,
+    default: "",
+    trim: true,
+  },
+
+  block: {
+    type: String,
+    default: "",
+    trim: true,
+  },
+
+  city: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  district: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  state: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  postalCode: {
+    type: String,
+    required: true,
+    match: /^[1-9][0-9]{5}$/,
+  },
+
+  country: {
+    type: String,
+    default: "India",
+    trim: true,
+  },
+},
 
       location: {
         latitude: {

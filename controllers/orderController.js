@@ -73,17 +73,15 @@ const ORDER_FLOW = {
   Cancelled: [],
 };
 
-const CANCELLABLE_STATUSES = [
-  "Pending Payment",
-  "Confirmed",
-  "Processing",
-];
+const CANCELLABLE_STATUSES = ["Pending Payment", "Confirmed", "Processing"];
 
 const COMMISSION_RATE = 10;
 
 // Referral qualification settings
 const REFERRAL_RETURN_WINDOW_DAYS = 7;
-const REFERRAL_MIN_ORDER_AMOUNT = Number(process.env.REFERRAL_MIN_ORDER_AMOUNT || 499);
+const REFERRAL_MIN_ORDER_AMOUNT = Number(
+  process.env.REFERRAL_MIN_ORDER_AMOUNT || 499,
+);
 
 const TRACK_ORDER_URL = "https://odikart.in/track-order";
 
@@ -115,12 +113,7 @@ const getSellerIdFromItem = (item) => {
   return item?.sellerId ? String(item.sellerId) : null;
 };
 
-const appendStatusHistory = (
-  order,
-  status,
-  updatedBy,
-  remark = "",
-) => {
+const appendStatusHistory = (order, status, updatedBy, remark = "") => {
   if (!Array.isArray(order.statusHistory)) {
     order.statusHistory = [];
   }
@@ -132,7 +125,6 @@ const appendStatusHistory = (
     remark,
   });
 };
-
 
 /* =========================================================
    COURIER VERIFICATION HELPERS
@@ -146,7 +138,7 @@ const isCourierVerified = (courier) => {
     courier.documents?.aadhaar?.documentUrl &&
     courier.documents?.drivingLicense?.documentUrl &&
     courier.documents?.aadhaar?.verified === true &&
-    courier.documents?.drivingLicense?.verified === true
+    courier.documents?.drivingLicense?.verified === true,
   );
 };
 
@@ -157,13 +149,11 @@ const ACTIVE_COURIER_STATUSES = [
   "Out for Delivery",
 ];
 
-
 /* =========================================================
    SAVE ORDER
 ========================================================= */
 
 export const saveOrder = async (req, res) => {
-
   let stockDeducted = [];
 
   try {
@@ -182,10 +172,7 @@ export const saveOrder = async (req, res) => {
        2. BASIC REQUEST VALIDATION
     ===================================================== */
 
-    if (
-      !Array.isArray(req.body?.items) ||
-      req.body.items.length === 0
-    ) {
+    if (!Array.isArray(req.body?.items) || req.body.items.length === 0) {
       return res.status(400).json({
         success: false,
         message: "At least one product is required",
@@ -203,11 +190,9 @@ export const saveOrder = async (req, res) => {
        3. DELIVERY ADDRESS
     ===================================================== */
 
-    const address =
-      req.body.deliveryAddress.address;
+    const address = req.body.deliveryAddress.address;
 
-    const postalCode =
-      String(address.postalCode || "").trim();
+    const postalCode = String(address.postalCode || "").trim();
 
     if (!/^[1-9][0-9]{5}$/.test(postalCode)) {
       return res.status(400).json({
@@ -221,25 +206,16 @@ export const saveOrder = async (req, res) => {
        4. CUSTOMER
     ===================================================== */
 
-    const customer =
-      req.body.deliveryAddress.customer || {};
+    const customer = req.body.deliveryAddress.customer || {};
 
     const fullname =
       customer.fullName ||
       req.body.fullname ||
-      `${req.user.firstName || ""} ${
-        req.user.lastName || ""
-      }`.trim();
+      `${req.user.firstName || ""} ${req.user.lastName || ""}`.trim();
 
-    const email =
-      customer.email ||
-      req.body.email ||
-      req.user.email;
+    const email = customer.email || req.body.email || req.user.email;
 
-    const phone =
-      customer.phone ||
-      req.body.phone ||
-      req.user.phone;
+    const phone = customer.phone || req.body.phone || req.user.phone;
 
     if (!fullname) {
       return res.status(400).json({
@@ -266,14 +242,9 @@ export const saveOrder = async (req, res) => {
        5. PAYMENT METHOD
     ===================================================== */
 
-    const paymentMethod =
-      req.body.paymentMethod || "COD";
+    const paymentMethod = req.body.paymentMethod || "COD";
 
-    if (
-      !["COD", "Razorpay"].includes(
-        paymentMethod
-      )
-    ) {
+    if (!["COD", "Razorpay"].includes(paymentMethod)) {
       return res.status(400).json({
         success: false,
         message: "Invalid payment method",
@@ -297,20 +268,15 @@ export const saveOrder = async (req, res) => {
     for (const item of req.body.items) {
       const productId = item.productId;
 
-      const quantity =
-        Number(item.quantity);
+      const quantity = Number(item.quantity);
 
-      const variantSku =
-        String(item.variantSku || "").trim();
+      const variantSku = String(item.variantSku || "").trim();
 
       /* -----------------------------------------------
          Product ID
       ------------------------------------------------ */
 
-      if (
-        !productId ||
-        !mongoose.Types.ObjectId.isValid(productId)
-      ) {
+      if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
         return res.status(400).json({
           success: false,
           message: "Invalid product ID",
@@ -321,10 +287,7 @@ export const saveOrder = async (req, res) => {
          Quantity
       ------------------------------------------------ */
 
-      if (
-        !Number.isInteger(quantity) ||
-        quantity <= 0
-      ) {
+      if (!Number.isInteger(quantity) || quantity <= 0) {
         return res.status(400).json({
           success: false,
           message: `Invalid quantity for product ${productId}`,
@@ -338,8 +301,7 @@ export const saveOrder = async (req, res) => {
       if (!variantSku) {
         return res.status(400).json({
           success: false,
-          message:
-            "Variant SKU is required for every product",
+          message: "Variant SKU is required for every product",
         });
       }
 
@@ -347,19 +309,17 @@ export const saveOrder = async (req, res) => {
          Get Product
       ------------------------------------------------ */
 
-      const product =
-        await Product.findOne({
-          _id: productId,
-          isDeleted: false,
-          isActive: true,
-          status: "approved",
-        });
+      const product = await Product.findOne({
+        _id: productId,
+        isDeleted: false,
+        isActive: true,
+        status: "approved",
+      });
 
       if (!product) {
         return res.status(404).json({
           success: false,
-          message:
-            `Product not found: ${productId}`,
+          message: `Product not found: ${productId}`,
         });
       }
 
@@ -367,43 +327,31 @@ export const saveOrder = async (req, res) => {
          8. PRODUCT PIN SERVICEABILITY
       ================================================= */
 
-      const allowedPincodes =
-        product.shipping
-          ?.serviceablePincodes || [];
+      const allowedPincodes = product.shipping?.serviceablePincodes || [];
 
       /*
         EMPTY ARRAY
         = Product can be delivered everywhere
       */
 
-      if (
-        allowedPincodes.length > 0
-      ) {
-        const serviceable =
-          allowedPincodes.some(
-            (pin) =>
-              String(pin).trim() ===
-              postalCode
-          );
+      if (allowedPincodes.length > 0) {
+        const serviceable = allowedPincodes.some(
+          (pin) => String(pin).trim() === postalCode,
+        );
 
         if (!serviceable) {
-
           return res.status(400).json({
             success: false,
 
-            code:
-              "PINCODE_NOT_SERVICEABLE",
+            code: "PINCODE_NOT_SERVICEABLE",
 
-            productId:
-              product._id,
+            productId: product._id,
 
-            productName:
-              product.title,
+            productName: product.title,
 
             postalCode,
 
-            message:
-              `${product.title} cannot be delivered to PIN code ${postalCode}`,
+            message: `${product.title} cannot be delivered to PIN code ${postalCode}`,
           });
         }
       }
@@ -412,19 +360,14 @@ export const saveOrder = async (req, res) => {
          9. FIND VARIANT
       ================================================= */
 
-      const variant =
-        product.variants?.find(
-          (v) =>
-            String(v.sku).trim() ===
-              variantSku &&
-            v.isActive !== false
-        );
+      const variant = product.variants?.find(
+        (v) => String(v.sku).trim() === variantSku && v.isActive !== false,
+      );
 
       if (!variant) {
         return res.status(400).json({
           success: false,
-          message:
-            `Variant ${variantSku} not found for ${product.title}`,
+          message: `Variant ${variantSku} not found for ${product.title}`,
         });
       }
 
@@ -432,19 +375,15 @@ export const saveOrder = async (req, res) => {
          10. STOCK
       ================================================= */
 
-      const availableStock =
-        Number(variant.stock || 0);
+      const availableStock = Number(variant.stock || 0);
 
-      if (
-        availableStock < quantity
-      ) {
+      if (availableStock < quantity) {
         return res.status(400).json({
           success: false,
 
           code: "INSUFFICIENT_STOCK",
 
-          message:
-            `${product.title} has only ${availableStock} item(s) available`,
+          message: `${product.title} has only ${availableStock} item(s) available`,
         });
       }
 
@@ -452,179 +391,115 @@ export const saveOrder = async (req, res) => {
          11. QUANTITY LIMIT
       ================================================= */
 
-      const minimumQuantity =
-        Number(
-          product.minimumOrderQuantity || 1
-        );
+      const minimumQuantity = Number(product.minimumOrderQuantity || 1);
 
-      const maximumQuantity =
-        Number(
-          product.maximumOrderQuantity || 10
-        );
+      const maximumQuantity = Number(product.maximumOrderQuantity || 10);
 
-      if (
-        quantity < minimumQuantity
-      ) {
+      if (quantity < minimumQuantity) {
         return res.status(400).json({
           success: false,
 
-          message:
-            `Minimum quantity for ${product.title} is ${minimumQuantity}`,
+          message: `Minimum quantity for ${product.title} is ${minimumQuantity}`,
         });
       }
 
-      if (
-        quantity > maximumQuantity
-      ) {
+      if (quantity > maximumQuantity) {
         return res.status(400).json({
           success: false,
 
-          message:
-            `Maximum quantity for ${product.title} is ${maximumQuantity}`,
+          message: `Maximum quantity for ${product.title} is ${maximumQuantity}`,
         });
       }
 
-
-/* =================================================
+      /* =================================================
    12. PRICE FROM DATABASE
 ================================================= */
 
-const price =
-  Number(variant.price || 0);
+      const price = Number(variant.price || 0);
 
-const itemSubtotal =
-  price * quantity;
+      const itemSubtotal = price * quantity;
 
-
-/* =================================================
+      /* =================================================
    13. PRODUCT DISCOUNT
 ================================================= */
 
-let productDiscount = 0;
+      let productDiscount = 0;
 
-const now = new Date();
+      const now = new Date();
 
+      // -------------------------------------------------
+      // VARIANT DISCOUNT
+      // -------------------------------------------------
 
-// -------------------------------------------------
-// VARIANT DISCOUNT
-// -------------------------------------------------
+      let discountPercentage = Number(variant.discountPercentage || 0);
 
-let discountPercentage =
-  Number(
-    variant.discountPercentage || 0
-  );
+      // -------------------------------------------------
+      // PRODUCT OFFER
+      // -------------------------------------------------
 
+      if (product.offer?.enabled === true) {
+        const started =
+          !product.offer.startDate || new Date(product.offer.startDate) <= now;
 
-// -------------------------------------------------
-// PRODUCT OFFER
-// -------------------------------------------------
+        const notExpired =
+          !product.offer.endDate || new Date(product.offer.endDate) >= now;
 
-if (
-  product.offer?.enabled === true
-) {
-  const started =
-    !product.offer.startDate ||
-    new Date(product.offer.startDate) <= now;
+        if (started && notExpired) {
+          const offerValue = Number(product.offer.value || 0);
 
-  const notExpired =
-    !product.offer.endDate ||
-    new Date(product.offer.endDate) >= now;
+          if (product.offer.discountType === "percentage") {
+            // Product offer overrides
+            // variant percentage discount
+            if (offerValue > 0) {
+              discountPercentage = offerValue;
+            }
+          }
 
-  if (
-    started &&
-    notExpired
-  ) {
-    const offerValue =
-      Number(
-        product.offer.value || 0
-      );
-
-    if (
-      product.offer.discountType ===
-      "percentage"
-    ) {
-      // Product offer overrides
-      // variant percentage discount
-      if (offerValue > 0) {
-        discountPercentage =
-          offerValue;
+          if (product.offer.discountType === "fixed") {
+            productDiscount = offerValue * quantity;
+          }
+        }
       }
-    }
 
-    if (
-      product.offer.discountType ===
-      "fixed"
-    ) {
-      productDiscount =
-        offerValue * quantity;
-    }
-  }
-}
+      // -------------------------------------------------
+      // PERCENTAGE DISCOUNT
+      // -------------------------------------------------
 
+      if (productDiscount === 0 && discountPercentage > 0) {
+        productDiscount = (itemSubtotal * discountPercentage) / 100;
+      }
 
-// -------------------------------------------------
-// PERCENTAGE DISCOUNT
-// -------------------------------------------------
+      // Never allow discount above price
+      productDiscount = Math.min(productDiscount, itemSubtotal);
 
-if (
-  productDiscount === 0 &&
-  discountPercentage > 0
-) {
-  productDiscount =
-    (itemSubtotal * discountPercentage) /
-    100;
-}
+      // -------------------------------------------------
+      // FINAL ITEM SUBTOTAL AFTER DISCOUNT
+      // -------------------------------------------------
 
+      const finalItemSubtotal = itemSubtotal - productDiscount;
 
-// Never allow discount above price
-productDiscount =
-  Math.min(
-    productDiscount,
-    itemSubtotal
-  );
-
-
-// -------------------------------------------------
-// FINAL ITEM SUBTOTAL AFTER DISCOUNT
-// -------------------------------------------------
-
-const finalItemSubtotal =
-  itemSubtotal -
-  productDiscount;
-
-
-/* =================================================
+      /* =================================================
    TAX
 ================================================= */
 
-// IMPORTANT:
-// Tax is calculated AFTER product discount.
-//
-// Example:
-// ₹509 - 15% discount = ₹432.65
-// ₹432.65 × 18% tax = ₹77.88
+      // IMPORTANT:
+      // Tax is calculated AFTER product discount.
+      //
+      // Example:
+      // ₹509 - 15% discount = ₹432.65
+      // ₹432.65 × 18% tax = ₹77.88
 
-const taxRate =
-  Number(variant.tax || 0);
+      const taxRate = Number(variant.tax || 0);
 
-const itemTax =
-  (finalItemSubtotal * taxRate) /
-  100;
+      const itemTax = (finalItemSubtotal * taxRate) / 100;
       /* =================================================
          15. SHIPPING
       ================================================= */
 
       let shippingCharge = 0;
 
-      if (
-        product.shipping
-          ?.freeShipping !== true
-      ) {
-        shippingCharge =
-          Number(
-            product.shipping
-              ?.shippingCharge || 0
-          );
+      if (product.shipping?.freeShipping !== true) {
+        shippingCharge = Number(product.shipping?.shippingCharge || 0);
       }
 
       /* =================================================
@@ -632,14 +507,11 @@ const itemTax =
       ================================================= */
 
       formattedItems.push({
-        productId:
-          product._id,
+        productId: product._id,
 
-        sellerId:
-          product.seller,
+        sellerId: product.seller,
 
-        title:
-          product.title,
+        title: product.title,
 
         image:
           variant.images?.[0] ||
@@ -651,48 +523,31 @@ const itemTax =
 
         quantity,
 
-        variantSku:
-          variant.sku,
+        variantSku: variant.sku,
 
-        tax:
-          itemTax,
+        tax: itemTax,
 
-        discount:
-          productDiscount,
+        discount: productDiscount,
 
-        total:
-          finalItemSubtotal +
-          itemTax,
+        total: finalItemSubtotal + itemTax,
       });
 
-      subtotal +=
-        finalItemSubtotal;
+      subtotal += finalItemSubtotal;
 
-      totalTax +=
-        itemTax;
+      totalTax += itemTax;
 
-      totalShipping +=
-        shippingCharge;
+      totalShipping += shippingCharge;
     }
 
     /* =====================================================
        17. ROUND VALUES
     ===================================================== */
 
-    subtotal =
-      Math.round(
-        subtotal * 100
-      ) / 100;
+    subtotal = Math.round(subtotal * 100) / 100;
 
-    totalTax =
-      Math.round(
-        totalTax * 100
-      ) / 100;
+    totalTax = Math.round(totalTax * 100) / 100;
 
-    totalShipping =
-      Math.round(
-        totalShipping * 100
-      ) / 100;
+    totalShipping = Math.round(totalShipping * 100) / 100;
 
     /* =====================================================
        18. COUPON
@@ -703,18 +558,12 @@ const itemTax =
     let couponType = "";
 
     if (req.body.couponCode) {
-      couponCode =
-        String(
-          req.body.couponCode
-        )
-          .trim()
-          .toUpperCase();
+      couponCode = String(req.body.couponCode).trim().toUpperCase();
 
-      const coupon =
-        await Coupon.findOne({
-          code: couponCode,
-          isActive: true,
-        });
+      const coupon = await Coupon.findOne({
+        code: couponCode,
+        isActive: true,
+      });
 
       if (!coupon) {
         return res.status(400).json({
@@ -727,11 +576,7 @@ const itemTax =
          Expiry
       ------------------------------------------------ */
 
-      if (
-        coupon.expiryDate &&
-        new Date(coupon.expiryDate) <
-          new Date()
-      ) {
+      if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
         return res.status(400).json({
           success: false,
           message: "Coupon expired",
@@ -742,17 +587,11 @@ const itemTax =
          Minimum order
       ------------------------------------------------ */
 
-      if (
-        subtotal <
-        Number(
-          coupon.minOrderAmount || 0
-        )
-      ) {
+      if (subtotal < Number(coupon.minOrderAmount || 0)) {
         return res.status(400).json({
           success: false,
 
-          message:
-            `Minimum order ₹${coupon.minOrderAmount} required`,
+          message: `Minimum order ₹${coupon.minOrderAmount} required`,
         });
       }
 
@@ -761,19 +600,12 @@ const itemTax =
       ------------------------------------------------ */
 
       if (
-        Array.isArray(
-          coupon.usedBy
-        ) &&
-        coupon.usedBy.some(
-          (id) =>
-            id.toString() ===
-            req.user._id.toString()
-        )
+        Array.isArray(coupon.usedBy) &&
+        coupon.usedBy.some((id) => id.toString() === req.user._id.toString())
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Coupon already used",
+          message: "Coupon already used",
         });
       }
 
@@ -781,380 +613,272 @@ const itemTax =
          Discount
       ------------------------------------------------ */
 
-      if (
-        coupon.discountType ===
-        "PERCENTAGE"
-      ) {
-        couponDiscount =
-          (subtotal *
-            Number(
-              coupon.discountValue || 0
-            )) /
-          100;
+      if (coupon.discountType === "PERCENTAGE") {
+        couponDiscount = (subtotal * Number(coupon.discountValue || 0)) / 100;
 
-        if (
-          Number(
-            coupon.maxDiscount || 0
-          ) > 0
-        ) {
-          couponDiscount =
-            Math.min(
-              couponDiscount,
-              Number(
-                coupon.maxDiscount
-              )
-            );
+        if (Number(coupon.maxDiscount || 0) > 0) {
+          couponDiscount = Math.min(couponDiscount, Number(coupon.maxDiscount));
         }
       } else {
-        couponDiscount =
-          Number(
-            coupon.discountValue || 0
-          );
+        couponDiscount = Number(coupon.discountValue || 0);
       }
 
-      couponDiscount =
-        Math.min(
-          couponDiscount,
-          subtotal
-        );
+      couponDiscount = Math.min(couponDiscount, subtotal);
 
-      couponType =
-        coupon.discountType;
+      couponType = coupon.discountType;
     }
 
     /* =====================================================
        19. FINAL TOTAL
     ===================================================== */
 
-    const finalAmount =
-      Math.max(
-        0,
+    const finalAmount = Math.max(
+      0,
 
-        Math.round(
-          (
-            subtotal +
-            totalShipping +
-            totalTax -
-            couponDiscount
-          ) * 100
-        ) / 100
-      );
+      Math.round((subtotal + totalShipping + totalTax - couponDiscount) * 100) /
+        100,
+    );
 
     /* =====================================================
        20. ORDER NUMBER
     ===================================================== */
 
-    const orderNumber =
-      await generateOrderNumber();
+    const orderNumber = await generateOrderNumber();
 
     /* =====================================================
        21. CANCELLATION
     ===================================================== */
 
-    const cancelBefore =
-      new Date();
+    const cancelBefore = new Date();
 
-    cancelBefore.setHours(
-      cancelBefore.getHours() + 24
-    );
+    cancelBefore.setHours(cancelBefore.getHours() + 24);
 
     /* =====================================================
        22. INITIAL STATUS
     ===================================================== */
 
     const initialStatus =
-      paymentMethod === "Razorpay"
-        ? "Pending Payment"
-        : "Confirmed";
+      paymentMethod === "Razorpay" ? "Pending Payment" : "Confirmed";
 
     /* =====================================================
        23. CREATE ORDER
     ===================================================== */
 
-    const order =
-      new Order({
-        userId:
-          req.user._id,
+    const order = new Order({
+      userId: req.user._id,
 
-        orderNumber,
+      orderNumber,
 
-        fullname,
+      fullname,
 
-        email,
+      email,
 
-        phone,
+      phone,
 
-        deliveryAddress: {
-          customer: {
-            fullName:
-              customer.fullName ||
-              fullname,
+      deliveryAddress: {
+        customer: {
+          fullName: customer.fullName || fullname,
 
-            phone:
-              customer.phone ||
-              phone,
+          phone: customer.phone || phone,
 
-            alternatePhone:
-              customer.alternatePhone ||
-              "",
+          alternatePhone: customer.alternatePhone || "",
 
-            email:
-              customer.email ||
-              email,
-          },
-
-          address: {
-            addressLine1:
-              address.addressLine1,
-
-            addressLine2:
-              address.addressLine2 ||
-              "",
-
-            landmark:
-              address.landmark ||
-              "",
-
-            area:
-              address.area,
-
-            city:
-              address.city,
-
-            district:
-              address.district,
-
-            state:
-              address.state,
-
-            postalCode,
-
-            country:
-              address.country ||
-              "India",
-          },
-
-          location:
-            req.body.deliveryAddress
-              .location || {},
-
-          preference:
-            req.body.deliveryAddress
-              .preference || {},
+          email: customer.email || email,
         },
 
-        pricing: {
-          subtotal,
+        address: {
+          label: address.label || "Home",
 
-          shippingCharge:
-            totalShipping,
+          houseNumber: address.houseNumber || "",
 
-          tax:
-            totalTax,
+          buildingName: address.buildingName || "",
 
-          couponCode,
+          floor: address.floor || "",
 
-          couponDiscount,
+          street: address.street || "",
 
-          couponType,
+          addressLine1: address.addressLine1,
 
-          total:
-            finalAmount,
+          addressLine2: address.addressLine2 || "",
+
+          landmark: address.landmark || "",
+
+          area: address.area,
+
+          village: address.village || "",
+
+          postOffice: address.postOffice || "",
+
+          block: address.block || "",
+
+          city: address.city,
+
+          district: address.district,
+
+          state: address.state,
+
+          postalCode,
+
+          country: address.country || "India",
         },
 
-        payment: {
-          method:
-            paymentMethod,
+        location: req.body.deliveryAddress.location || {},
 
-          status:
-            paymentMethod ===
-            "Razorpay"
-              ? "Pending"
-              : "Pending",
+        preference: req.body.deliveryAddress.preference || {},
+      },
 
-          gateway: {
-            orderId:
-              req.body
-                .razorpayOrderId ||
-              "",
+      pricing: {
+        subtotal,
 
-            paymentId:
-              req.body
-                .razorpayPaymentId ||
-              "",
+        shippingCharge: totalShipping,
 
-            signature:
-              req.body
-                .razorpaySignature ||
-              "",
-          },
+        tax: totalTax,
+
+        couponCode,
+
+        couponDiscount,
+
+        couponType,
+
+        total: finalAmount,
+      },
+
+      payment: {
+        method: paymentMethod,
+
+        status: paymentMethod === "Razorpay" ? "Pending" : "Pending",
+
+        gateway: {
+          orderId: req.body.razorpayOrderId || "",
+
+          paymentId: req.body.razorpayPaymentId || "",
+
+          signature: req.body.razorpaySignature || "",
         },
+      },
 
-        status:
-          initialStatus,
+      status: initialStatus,
 
-        statusHistory: [
-          {
-            status:
-              initialStatus,
+      statusHistory: [
+        {
+          status: initialStatus,
 
-            date:
-              new Date(),
+          date: new Date(),
 
-            updatedBy:
-              req.user._id,
+          updatedBy: req.user._id,
 
-            remark:
-              paymentMethod ===
-              "Razorpay"
-                ? "Order created. Payment pending."
-                : "COD order created.",
-          },
-        ],
-
-        returnDetails: {
-          requested: false,
-
-          resolution:
-            "Refund",
-
-          reason: "",
-
-          reasonType:
-            "Other",
-
-          customerComment:
-            "",
-
-          sellerRemark:
-            "",
-
-          adminRemark:
-            "",
-
-          inspectionStatus:
-            "Pending",
-
-          refundAmount:
-            0,
-
-          images: [],
-
-          videos: [],
+          remark:
+            paymentMethod === "Razorpay"
+              ? "Order created. Payment pending."
+              : "COD order created.",
         },
+      ],
 
-        cancellation: {
-          allowed: true,
+      returnDetails: {
+        requested: false,
 
-          cancelBefore,
+        resolution: "Refund",
 
-          cancelled: false,
+        reason: "",
 
-          cancelledAt: null,
+        reasonType: "Other",
 
-          cancelledBy: "",
+        customerComment: "",
 
-          reason: "",
-        },
+        sellerRemark: "",
 
-        items:
-          formattedItems,
-      });
+        adminRemark: "",
+
+        inspectionStatus: "Pending",
+
+        refundAmount: 0,
+
+        images: [],
+
+        videos: [],
+      },
+
+      cancellation: {
+        allowed: true,
+
+        cancelBefore,
+
+        cancelled: false,
+
+        cancelledAt: null,
+
+        cancelledBy: "",
+
+        reason: "",
+      },
+
+      items: formattedItems,
+    });
 
     /* =====================================================
        24. RAZORPAY ORDER
     ===================================================== */
 
-    if (
-      paymentMethod ===
-      "Razorpay"
-    ) {
+    if (paymentMethod === "Razorpay") {
       if (!razorpay) {
         return res.status(500).json({
           success: false,
-          message:
-            "Razorpay is not configured",
+          message: "Razorpay is not configured",
         });
       }
 
-      const razorpayOrder =
-        await razorpay.orders.create({
-          amount:
-            Math.round(
-              finalAmount * 100
-            ),
+      const razorpayOrder = await razorpay.orders.create({
+        amount: Math.round(finalAmount * 100),
 
-          currency:
-            "INR",
+        currency: "INR",
 
-          receipt:
-            orderNumber,
+        receipt: orderNumber,
 
-          notes: {
-            orderNumber,
+        notes: {
+          orderNumber,
 
-            userId:
-              req.user._id.toString(),
-          },
-        });
+          userId: req.user._id.toString(),
+        },
+      });
 
-      order.payment.gateway.orderId =
-        razorpayOrder.id;
+      order.payment.gateway.orderId = razorpayOrder.id;
     }
 
     /* =====================================================
        25. STOCK DEDUCTION
     ===================================================== */
 
-    for (
-      const item
-      of formattedItems
-    ) {
-      const result =
-        await Product.updateOne(
-          {
-            _id:
-              item.productId,
+    for (const item of formattedItems) {
+      const result = await Product.updateOne(
+        {
+          _id: item.productId,
 
-            "variants.sku":
-              item.variantSku,
+          "variants.sku": item.variantSku,
 
-            "variants.stock":
-              {
-                $gte:
-                  item.quantity,
-              },
+          "variants.stock": {
+            $gte: item.quantity,
           },
+        },
 
-          {
-            $inc: {
-              "variants.$.stock":
-                -item.quantity,
+        {
+          $inc: {
+            "variants.$.stock": -item.quantity,
 
-              "variants.$.sold":
-                item.quantity,
-            },
-          }
-        );
+            "variants.$.sold": item.quantity,
+          },
+        },
+      );
 
-      if (
-        result.matchedCount !== 1 ||
-        result.modifiedCount !== 1
-      ) {
-        throw new Error(
-          `Stock unavailable for ${item.title}`
-        );
+      if (result.matchedCount !== 1 || result.modifiedCount !== 1) {
+        throw new Error(`Stock unavailable for ${item.title}`);
       }
 
       stockDeducted.push({
-        productId:
-          item.productId,
+        productId: item.productId,
 
-        variantSku:
-          item.variantSku,
+        variantSku: item.variantSku,
 
-        quantity:
-          item.quantity,
+        quantity: item.quantity,
       });
     }
 
@@ -1162,10 +886,9 @@ const itemTax =
        26. SAVE ORDER
     ===================================================== */
 
-    const savedOrder =
-      await order.save();
+    const savedOrder = await order.save();
 
-//
+    //
     /* =====================================================
        27. EMAIL SELLERS + ADMINS
        Send a new-order email after the order is saved.
@@ -1176,7 +899,7 @@ const itemTax =
         ...new Set(
           formattedItems
             .map((item) => item.sellerId?.toString())
-            .filter(Boolean)
+            .filter(Boolean),
         ),
       ];
 
@@ -1205,14 +928,12 @@ const itemTax =
           .filter((seller) => seller.email)
           .map(async (seller) => {
             const sellerItems = formattedItems.filter(
-              (item) =>
-                item.sellerId?.toString() === seller._id.toString()
+              (item) => item.sellerId?.toString() === seller._id.toString(),
             );
 
             const sellerSubtotal = sellerItems.reduce(
-              (total, item) =>
-                total + Number(item.total || 0),
-              0
+              (total, item) => total + Number(item.total || 0),
+              0,
             );
 
             const sellerItemsHtml = sellerItems
@@ -1225,7 +946,7 @@ const itemTax =
                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${money(item.total)}</td>
                   </tr>
-                `
+                `,
               )
               .join("");
 
@@ -1285,9 +1006,9 @@ const itemTax =
   </div>
 </body>
 </html>
-              `
+              `,
             );
-          })
+          }),
       );
 
       /* -----------------------------------------------------
@@ -1307,7 +1028,7 @@ const itemTax =
                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">₹${money(item.total)}</td>
                   </tr>
-                `
+                `,
               )
               .join("");
 
@@ -1368,9 +1089,9 @@ const itemTax =
   </div>
 </body>
 </html>
-              `
+              `,
             );
-          })
+          }),
       );
     } catch (emailError) {
       /* Email failure must not undo a successfully saved order. */
@@ -1383,16 +1104,14 @@ const itemTax =
     if (couponCode) {
       await Coupon.findOneAndUpdate(
         {
-          code:
-            couponCode,
+          code: couponCode,
         },
 
         {
           $addToSet: {
-            usedBy:
-              req.user._id,
+            usedBy: req.user._id,
           },
-        }
+        },
       );
     }
 
@@ -1404,83 +1123,54 @@ const itemTax =
       success: true,
 
       message:
-        paymentMethod ===
-        "Razorpay"
+        paymentMethod === "Razorpay"
           ? "Order created. Complete payment."
           : "Order placed successfully.",
 
-      order:
-        savedOrder,
+      order: savedOrder,
 
       razorpay:
-        paymentMethod ===
-        "Razorpay"
+        paymentMethod === "Razorpay"
           ? {
-              orderId:
-                savedOrder
-                  .payment
-                  .gateway
-                  .orderId,
+              orderId: savedOrder.payment.gateway.orderId,
 
-              amount:
-                Math.round(
-                  finalAmount *
-                    100
-                ),
+              amount: Math.round(finalAmount * 100),
 
-              currency:
-                "INR",
+              currency: "INR",
             }
           : null,
     });
   } catch (error) {
-
     /* =====================================================
        30. ROLLBACK STOCK
     ===================================================== */
 
-    if (
-      stockDeducted.length >
-      0
-    ) {
-
-      for (
-        const item
-        of stockDeducted
-      ) {
+    if (stockDeducted.length > 0) {
+      for (const item of stockDeducted) {
         try {
           await Product.updateOne(
             {
-              _id:
-                item.productId,
+              _id: item.productId,
 
-              "variants.sku":
-                item.variantSku,
+              "variants.sku": item.variantSku,
             },
 
             {
               $inc: {
-                "variants.$.stock":
-                  item.quantity,
+                "variants.$.stock": item.quantity,
 
-                "variants.$.sold":
-                  -item.quantity,
+                "variants.$.sold": -item.quantity,
               },
-            }
+            },
           );
-        } catch (
-          rollbackError
-        ) {
-        }
+        } catch (rollbackError) {}
       }
     }
 
     return res.status(500).json({
       success: false,
 
-      message:
-        error.message ||
-        "Failed to save order",
+      message: error.message || "Failed to save order",
     });
   }
 };
@@ -1502,10 +1192,7 @@ export const getOrders = async (req, res) => {
       .sort({
         createdAt: -1,
       })
-      .populate(
-        "userId",
-        "firstName lastName email phone image",
-      )
+      .populate("userId", "firstName lastName email phone image")
       .populate(
         "items.productId",
         "title slug images thumbnail brand category",
@@ -1519,7 +1206,6 @@ export const getOrders = async (req, res) => {
       orders,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -1531,10 +1217,7 @@ export const getOrders = async (req, res) => {
    GET USER ORDERS
 ========================================================= */
 
-export const getUserOrders = async (
-  req,
-  res,
-) => {
+export const getUserOrders = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -1557,12 +1240,10 @@ export const getUserOrders = async (
       orders,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
-      message:
-        "Failed to fetch user orders",
+      message: "Failed to fetch user orders",
     });
   }
 };
@@ -1571,16 +1252,11 @@ export const getUserOrders = async (
    GET SINGLE ORDER
 ========================================================= */
 
-export const getSingleOrder = async (
-  req,
-  res,
-) => {
+export const getSingleOrder = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (
-      !mongoose.Types.ObjectId.isValid(id)
-    ) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid order ID",
@@ -1591,8 +1267,7 @@ export const getSingleOrder = async (
       .populate({
         path: "userId",
 
-        select:
-          "firstName lastName email phone image",
+        select: "firstName lastName email phone image",
       })
       .populate({
         path: "shipping.courier",
@@ -1603,8 +1278,7 @@ export const getSingleOrder = async (
       .populate({
         path: "items.productId",
 
-        select:
-          "title slug images thumbnail brand category variants",
+        select: "title slug images thumbnail brand category variants",
       });
 
     if (!order) {
@@ -1615,8 +1289,7 @@ export const getSingleOrder = async (
       });
     }
 
-    const userId =
-      req.user._id.toString();
+    const userId = req.user._id.toString();
 
     const role = req.user.role;
 
@@ -1636,11 +1309,7 @@ export const getSingleOrder = async (
        CUSTOMER
     ===================================================== */
 
-    if (
-      role === "user" &&
-      order.userId?._id?.toString() ===
-        userId
-    ) {
+    if (role === "user" && order.userId?._id?.toString() === userId) {
       return res.status(200).json({
         success: true,
 
@@ -1653,12 +1322,9 @@ export const getSingleOrder = async (
     ===================================================== */
 
     if (role === "seller") {
-      const sellerItems =
-        order.items.filter(
-          (item) =>
-            item.sellerId?.toString() ===
-            userId,
-        );
+      const sellerItems = order.items.filter(
+        (item) => item.sellerId?.toString() === userId,
+      );
 
       if (sellerItems.length === 0) {
         return res.status(403).json({
@@ -1668,23 +1334,18 @@ export const getSingleOrder = async (
         });
       }
 
-      const sellerTotal =
-        sellerItems.reduce(
-          (total, item) =>
-            total +
-            Number(item.price || 0) *
-              Number(item.quantity || 0),
-          0,
-        );
+      const sellerTotal = sellerItems.reduce(
+        (total, item) =>
+          total + Number(item.price || 0) * Number(item.quantity || 0),
+        0,
+      );
 
       const sellerOrder = {
         ...order.toObject(),
 
         items: sellerItems,
 
-        sellerTotal: money(
-          sellerTotal,
-        ),
+        sellerTotal: money(sellerTotal),
       };
 
       return res.status(200).json({
@@ -1700,7 +1361,6 @@ export const getSingleOrder = async (
       message: "Access denied",
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
@@ -1713,36 +1373,26 @@ export const getSingleOrder = async (
    TRACK ORDER
 ========================================================= */
 
-export const trackOrder = async (
-  req,
-  res,
-) => {
+export const trackOrder = async (req, res) => {
   try {
-    const orderNumber = String(
-      req.params.orderNumber || "",
-    ).trim();
+    const orderNumber = String(req.params.orderNumber || "").trim();
 
     if (!orderNumber) {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Odikart order number is required",
+        message: "Odikart order number is required",
       });
     }
 
-    const order =
-      await Order.findOne({
-        orderNumber,
-      })
-        .populate(
-          "shipping.courier",
-          "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
-        )
-        .populate(
-          "items.productId",
-          "title images thumbnail",
-        );
+    const order = await Order.findOne({
+      orderNumber,
+    })
+      .populate(
+        "shipping.courier",
+        "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
+      )
+      .populate("items.productId", "title images thumbnail");
 
     if (!order) {
       return res.status(404).json({
@@ -1758,7 +1408,6 @@ export const trackOrder = async (
       order,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
@@ -1771,15 +1420,9 @@ export const trackOrder = async (
    CANCEL ORDER
 ========================================================= */
 
-export const cancelOrder = async (
-  req,
-  res,
-) => {
+export const cancelOrder = async (req, res) => {
   try {
-    const order =
-      await Order.findById(
-        req.params.id,
-      );
+    const order = await Order.findById(req.params.id);
 
     if (!order) {
       return res.status(404).json({
@@ -1794,8 +1437,7 @@ export const cancelOrder = async (
     ===================================================== */
 
     if (
-      order.userId.toString() !==
-        req.user._id.toString() &&
+      order.userId.toString() !== req.user._id.toString() &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({
@@ -1817,8 +1459,7 @@ export const cancelOrder = async (
       return res.status(400).json({
         success: false,
 
-        message:
-          "Order already cancelled",
+        message: "Order already cancelled",
       });
     }
 
@@ -1826,16 +1467,11 @@ export const cancelOrder = async (
        STATUS CHECK
     ===================================================== */
 
-    if (
-      !CANCELLABLE_STATUSES.includes(
-        order.status,
-      )
-    ) {
+    if (!CANCELLABLE_STATUSES.includes(order.status)) {
       return res.status(400).json({
         success: false,
 
-        message:
-          `Order cannot be cancelled after "${order.status}".`,
+        message: `Order cannot be cancelled after "${order.status}".`,
       });
     }
 
@@ -1845,17 +1481,14 @@ export const cancelOrder = async (
 
     if (
       order.cancellation?.cancelBefore &&
-      new Date() >
-        order.cancellation
-          .cancelBefore
+      new Date() > order.cancellation.cancelBefore
     ) {
       return res.status(400).json({
         success: false,
 
-        message:
-          `Cancellation was allowed only until ${order.cancellation.cancelBefore.toLocaleString(
-            "en-IN",
-          )}`,
+        message: `Cancellation was allowed only until ${order.cancellation.cancelBefore.toLocaleString(
+          "en-IN",
+        )}`,
       });
     }
 
@@ -1865,78 +1498,51 @@ export const cancelOrder = async (
 
     let refundCreated = false;
 
-    const paymentMethod =
-      String(
-        order.payment?.method || "",
-      )
-        .trim()
-        .toLowerCase();
+    const paymentMethod = String(order.payment?.method || "")
+      .trim()
+      .toLowerCase();
 
     if (
       paymentMethod === "razorpay" &&
       order.payment?.status === "Paid" &&
-      order.payment?.gateway
-        ?.paymentId
+      order.payment?.gateway?.paymentId
     ) {
-      const refundAmount = Math.round(
-        Number(
-          order.pricing?.total || 0,
-        ) * 100,
-      );
+      const refundAmount = Math.round(Number(order.pricing?.total || 0) * 100);
 
-      if (
-        !Number.isInteger(
-          refundAmount,
-        ) ||
-        refundAmount <= 0
-      ) {
+      if (!Number.isInteger(refundAmount) || refundAmount <= 0) {
         return res.status(400).json({
           success: false,
 
-          message:
-            "Invalid refund amount",
+          message: "Invalid refund amount",
         });
       }
 
       try {
-        const refund =
-          await razorpay.payments.refund(
-            order.payment.gateway
-              .paymentId,
-            {
-              amount:
-                refundAmount,
-            },
-          );
+        const refund = await razorpay.payments.refund(
+          order.payment.gateway.paymentId,
+          {
+            amount: refundAmount,
+          },
+        );
 
-        order.payment.status =
-          "Refunded";
+        order.payment.status = "Refunded";
 
         if (!order.refund) {
           order.refund = {};
         }
 
-        order.refund.refundId =
-          refund.id;
+        order.refund.refundId = refund.id;
 
-        order.refund.status =
-          "Completed";
+        order.refund.status = "Completed";
 
-        order.refund.amount =
-          Number(
-            order.pricing?.total ||
-              0,
-          );
+        order.refund.amount = Number(order.pricing?.total || 0);
 
-        order.refund.refundedAt =
-          new Date();
+        order.refund.refundedAt = new Date();
 
         refundCreated = true;
       } catch (refundError) {
-
         const description =
-          refundError?.error
-            ?.description ||
+          refundError?.error?.description ||
           refundError?.description ||
           refundError?.message ||
           "Razorpay refund failed";
@@ -1946,8 +1552,7 @@ export const cancelOrder = async (
 
           refundFailed: true,
 
-          message:
-            `Refund could not be processed: ${description}`,
+          message: `Refund could not be processed: ${description}`,
         });
       }
     }
@@ -1956,14 +1561,11 @@ export const cancelOrder = async (
        STOCK RESTORATION
     ===================================================== */
 
-    if (
-      order.stock?.restored === true
-    ) {
+    if (order.stock?.restored === true) {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Order stock has already been restored",
+        message: "Order stock has already been restored",
       });
     }
 
@@ -1971,52 +1573,38 @@ export const cancelOrder = async (
 
     try {
       for (const item of order.items) {
-        const quantity = Number(
-          item.quantity || 0,
-        );
+        const quantity = Number(item.quantity || 0);
 
-        if (
-          !item.productId ||
-          quantity <= 0
-        ) {
+        if (!item.productId || quantity <= 0) {
           continue;
         }
 
-        const result =
-          await Product.updateOne(
-            {
-              _id: item.productId,
+        const result = await Product.updateOne(
+          {
+            _id: item.productId,
 
-              "variants.sku":
-                item.variantSku,
+            "variants.sku": item.variantSku,
+          },
+
+          {
+            $inc: {
+              "variants.$.stock": quantity,
+
+              "variants.$.sold": -quantity,
             },
+          },
+        );
 
-            {
-              $inc: {
-                "variants.$.stock":
-                  quantity,
-
-                "variants.$.sold":
-                  -quantity,
-              },
-            },
-          );
-
-        if (
-          result.matchedCount !== 1 ||
-          result.modifiedCount !== 1
-        ) {
+        if (result.matchedCount !== 1 || result.modifiedCount !== 1) {
           throw new Error(
             `Stock restoration failed for ${item.title} (${item.variantSku})`,
           );
         }
 
         restoredItems.push({
-          productId:
-            item.productId,
+          productId: item.productId,
 
-          variantSku:
-            item.variantSku,
+          variantSku: item.variantSku,
 
           quantity,
         });
@@ -2033,8 +1621,7 @@ export const cancelOrder = async (
 
         refundCreated,
 
-        stockRestorationFailed:
-          true,
+        stockRestorationFailed: true,
 
         message:
           "Payment refund was processed, but stock restoration failed. Please contact support immediately.",
@@ -2051,8 +1638,7 @@ export const cancelOrder = async (
 
     order.cancelledAt = now;
 
-    order.cancelledBy =
-      req.user.role;
+    order.cancelledBy = req.user.role;
 
     order.status = "Cancelled";
 
@@ -2060,14 +1646,11 @@ export const cancelOrder = async (
       order.cancellation = {};
     }
 
-    order.cancellation.allowed =
-      true;
+    order.cancellation.allowed = true;
 
-    order.cancellation.cancelled =
-      true;
+    order.cancellation.cancelled = true;
 
-    order.cancellation.cancelledAt =
-      now;
+    order.cancellation.cancelledAt = now;
 
     if (!order.stock) {
       order.stock = {};
@@ -2097,12 +1680,12 @@ export const cancelOrder = async (
     try {
       console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
 
-console.log({
-  orderId: order._id?.toString(),
-  orderNumber: order.orderNumber,
-  orderUserId: order.userId?.toString(),
-  newStatus: status,
-});
+      console.log({
+        orderId: order._id?.toString(),
+        orderNumber: order.orderNumber,
+        orderUserId: order.userId?.toString(),
+        newStatus: status,
+      });
       await createOrderNotification({
         userId: order.userId,
         orderId: order._id,
@@ -2113,7 +1696,7 @@ console.log({
     } catch (notificationError) {
       console.error(
         "Website cancellation notification failed:",
-        notificationError
+        notificationError,
       );
     }
 
@@ -2314,9 +1897,7 @@ border-radius:8px;
 </html>
 `,
       );
-    } catch (emailError) {
-    }
-
+    } catch (emailError) {}
 
     /* =====================================================
        SELLER + ADMIN CANCELLATION EMAILS
@@ -2329,9 +1910,7 @@ border-radius:8px;
     try {
       const sellerIds = [
         ...new Set(
-          order.items
-            .map((item) => getSellerIdFromItem(item))
-            .filter(Boolean),
+          order.items.map((item) => getSellerIdFromItem(item)).filter(Boolean),
         ),
       ];
 
@@ -2350,17 +1929,13 @@ border-radius:8px;
         .select("_id firstName lastName email")
         .lean();
 
-      const customerName =
-        order.fullname || "Customer";
+      const customerName = order.fullname || "Customer";
 
-      const orderTotal =
-        money(order.pricing?.total || 0);
+      const orderTotal = money(order.pricing?.total || 0);
 
-      const paymentMethod =
-        order.payment?.method || "COD";
+      const paymentMethod = order.payment?.method || "COD";
 
-      const paymentStatus =
-        order.payment?.status || "Pending";
+      const paymentStatus = order.payment?.status || "Pending";
 
       /* -----------------------------------------------------
          SELLER CANCELLATION EMAILS
@@ -2372,9 +1947,7 @@ border-radius:8px;
           .filter((seller) => seller.email)
           .map(async (seller) => {
             const sellerItems = order.items.filter(
-              (item) =>
-                getSellerIdFromItem(item) ===
-                seller._id.toString(),
+              (item) => getSellerIdFromItem(item) === seller._id.toString(),
             );
 
             if (!sellerItems.length) {
@@ -2383,8 +1956,7 @@ border-radius:8px;
 
             const sellerTotal = money(
               sellerItems.reduce(
-                (total, item) =>
-                  total + Number(item.total || 0),
+                (total, item) => total + Number(item.total || 0),
                 0,
               ),
             );
@@ -2729,51 +2301,38 @@ ${TRACK_ORDER_URL}
 ❤️ Thank you for shopping with *Odikart*
 `,
       );
-    } catch (whatsappError) {
-    }
+    } catch (whatsappError) {}
 
     return res.status(200).json({
       success: true,
 
-      message:
-        "Order cancelled successfully & stock restored",
+      message: "Order cancelled successfully & stock restored",
 
       order,
 
       notifications: {
         customerEmail: true,
         customerWhatsApp: true,
-        sellerEmailsSent:
-          sellerCancellationEmailsSent,
-        adminEmailsSent:
-          adminCancellationEmailsSent,
+        sellerEmailsSent: sellerCancellationEmailsSent,
+        adminEmailsSent: adminCancellationEmailsSent,
       },
 
       refund: {
         created: refundCreated,
-        amount: refundCreated
-          ? money(order.pricing?.total || 0)
-          : 0,
-        status:
-          refundCreated
-            ? "Completed"
-            : "Not Required",
+        amount: refundCreated ? money(order.pricing?.total || 0) : 0,
+        status: refundCreated ? "Completed" : "Not Required",
       },
 
       stock: {
         restored: true,
-        restoredItems:
-          order.items?.length || 0,
+        restoredItems: order.items?.length || 0,
       },
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
-      message:
-        error.message ||
-        "Order cancellation failed",
+      message: error.message || "Order cancellation failed",
     });
   }
 };
@@ -2782,29 +2341,17 @@ ${TRACK_ORDER_URL}
    UPDATE ORDER STATUS
 ========================================================= */
 
-export const updateOrderStatus = async (
-  req,
-  res,
-) => {
+export const updateOrderStatus = async (req, res) => {
   try {
-    const { orderId } =
-      req.params;
+    const { orderId } = req.params;
 
-    const {
-      status,
-      remark,
-    } = req.body;
+    const { status, remark } = req.body;
 
-    if (
-      !mongoose.Types.ObjectId.isValid(
-        orderId,
-      )
-    ) {
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Invalid order ID",
+        message: "Invalid order ID",
       });
     }
 
@@ -2812,38 +2359,27 @@ export const updateOrderStatus = async (
       return res.status(400).json({
         success: false,
 
-        message:
-          "Status is required",
+        message: "Status is required",
       });
     }
 
-    const order =
-      await Order.findById(orderId);
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
 
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    const allowedStatuses =
-      ORDER_FLOW[
-        order.status
-      ] || [];
+    const allowedStatuses = ORDER_FLOW[order.status] || [];
 
-    if (
-      !allowedStatuses.includes(
-        status,
-      )
-    ) {
+    if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
 
-        message:
-          `Cannot change status from ${order.status} to ${status}`,
+        message: `Cannot change status from ${order.status} to ${status}`,
       });
     }
 
@@ -2853,16 +2389,13 @@ export const updateOrderStatus = async (
 
     if (
       status === "Confirmed" &&
-      order.payment?.method ===
-        "Razorpay" &&
-      order.payment?.status !==
-        "Paid"
+      order.payment?.method === "Razorpay" &&
+      order.payment?.status !== "Paid"
     ) {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Payment not completed",
+        message: "Payment not completed",
       });
     }
 
@@ -2871,26 +2404,19 @@ export const updateOrderStatus = async (
     ===================================================== */
 
     if (status === "Shipped") {
-      if (
-        !order.shipping?.courier
-      ) {
+      if (!order.shipping?.courier) {
         return res.status(400).json({
           success: false,
 
-          message:
-            "Assign courier before shipping",
+          message: "Assign courier before shipping",
         });
       }
 
-      if (
-        !order.shipping
-          ?.trackingNumber
-      ) {
+      if (!order.shipping?.trackingNumber) {
         return res.status(400).json({
           success: false,
 
-          message:
-            "Tracking number missing",
+          message: "Tracking number missing",
         });
       }
     }
@@ -2899,16 +2425,11 @@ export const updateOrderStatus = async (
        RETURN REQUEST CHECK
     ===================================================== */
 
-    if (
-      status ===
-        "Return Requested" &&
-      order.status !== "Delivered"
-    ) {
+    if (status === "Return Requested" && order.status !== "Delivered") {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Only delivered orders can be returned",
+        message: "Only delivered orders can be returned",
       });
     }
 
@@ -2938,68 +2459,50 @@ export const updateOrderStatus = async (
 
     order.status = status;
 
-    if (
-      status === "Delivered"
-    ) {
-      order.deliveredAt =
-        new Date();
+    if (status === "Delivered") {
+      order.deliveredAt = new Date();
 
       /*
         Delivery completed:
         release courier and stop live GPS.
       */
       if (order.shipping?.courier) {
-        await Courier.findByIdAndUpdate(
-          order.shipping.courier,
-          {
-            $set: {
-              status: "available",
-              isLocationSharing: false,
-              locationUpdatedAt: new Date(),
-            },
-            $inc: {
-              totalDeliveries: 1,
-              successfulDeliveries: 1,
-            },
+        await Courier.findByIdAndUpdate(order.shipping.courier, {
+          $set: {
+            status: "available",
+            isLocationSharing: false,
+            locationUpdatedAt: new Date(),
           },
-        );
+          $inc: {
+            totalDeliveries: 1,
+            successfulDeliveries: 1,
+          },
+        });
       }
     }
 
-    if (
-      status === "Cancelled"
-    ) {
+    if (status === "Cancelled") {
       order.cancelled = true;
 
-      order.cancelledAt =
-        new Date();
+      order.cancelledAt = new Date();
 
-      order.cancelledBy =
-        req.user.role;
+      order.cancelledBy = req.user.role;
 
       /*
         Cancelled delivery:
         release courier and stop GPS.
       */
       if (order.shipping?.courier) {
-        await Courier.findByIdAndUpdate(
-          order.shipping.courier,
-          {
-            $set: {
-              status: "available",
-              isLocationSharing: false,
-            },
+        await Courier.findByIdAndUpdate(order.shipping.courier, {
+          $set: {
+            status: "available",
+            isLocationSharing: false,
           },
-        );
+        });
       }
     }
 
-    appendStatusHistory(
-      order,
-      status,
-      req.user._id,
-      remark || "",
-    );
+    appendStatusHistory(order, status, req.user._id, remark || "");
 
     await order.save();
 
@@ -3101,18 +2604,17 @@ export const updateOrderStatus = async (
         },
       };
 
-      const notification =
-        orderNotificationMap[status];
+      const notification = orderNotificationMap[status];
 
       if (notification) {
         console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
 
-console.log({
-  orderId: order._id?.toString(),
-  orderNumber: order.orderNumber,
-  orderUserId: order.userId?.toString(),
-  newStatus: status,
-});
+        console.log({
+          orderId: order._id?.toString(),
+          orderNumber: order.orderNumber,
+          orderUserId: order.userId?.toString(),
+          newStatus: status,
+        });
         await createOrderNotification({
           userId: order.userId,
           orderId: order._id,
@@ -3122,10 +2624,7 @@ console.log({
         });
       }
     } catch (notificationError) {
-      console.error(
-        "Website order notification failed:",
-        notificationError
-      );
+      console.error("Website order notification failed:", notificationError);
     }
 
     /* =====================================================
@@ -3154,13 +2653,9 @@ console.log({
        SELLER WALLET
     ===================================================== */
 
-    if (
-      status === "Delivered"
-    ) {
+    if (status === "Delivered") {
       try {
-        await creditSellerWallet(
-          order._id,
-        );
+        await creditSellerWallet(order._id);
       } catch (walletError) {
         /*
           Do not fail the delivery status because
@@ -3172,19 +2667,15 @@ console.log({
     return res.status(200).json({
       success: true,
 
-      message:
-        "Order status updated successfully",
+      message: "Order status updated successfully",
 
       order,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
-      message:
-        error.message ||
-        "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -3196,7 +2687,6 @@ console.log({
 
 export const assignCourier = async (req, res) => {
   try {
-
     /* =====================================================
        1. ADMIN CHECK
     ===================================================== */
@@ -3262,8 +2752,7 @@ export const assignCourier = async (req, res) => {
       return res.status(400).json({
         success: false,
         code: "ORDER_NOT_READY_FOR_PICKUP",
-        message:
-          `Courier can be assigned only when order status is "Ready for Pickup". Current status: ${order.status}`,
+        message: `Courier can be assigned only when order status is "Ready for Pickup". Current status: ${order.status}`,
       });
     }
 
@@ -3312,8 +2801,7 @@ export const assignCourier = async (req, res) => {
       return res.status(400).json({
         success: false,
         code: "COURIER_NOT_AVAILABLE",
-        message:
-          `Courier is currently ${courier.status}. Only available couriers can be assigned.`,
+        message: `Courier is currently ${courier.status}. Only available couriers can be assigned.`,
       });
     }
 
@@ -3332,18 +2820,9 @@ export const assignCourier = async (req, res) => {
         not move backward because of UTC conversion.
       */
       if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-        const [year, month, day] = rawDate
-          .split("-")
-          .map(Number);
+        const [year, month, day] = rawDate.split("-").map(Number);
 
-        estimatedDate = new Date(
-          year,
-          month - 1,
-          day,
-          23,
-          59,
-          59
-        );
+        estimatedDate = new Date(year, month - 1, day, 23, 59, 59);
       } else {
         estimatedDate = new Date(rawDate);
       }
@@ -3374,8 +2853,7 @@ export const assignCourier = async (req, res) => {
       ? `ODK-TRK-${String(order.orderNumber).replace(/^ODK-/, "")}`
       : `ODK-TRK-${Date.now()}`;
 
-    const trackingUrl =
-      `${TRACK_ORDER_URL}/${encodeURIComponent(order.orderNumber || "")}`;
+    const trackingUrl = `${TRACK_ORDER_URL}/${encodeURIComponent(order.orderNumber || "")}`;
 
     /* =====================================================
        10. ENSURE SHIPPING OBJECT
@@ -3424,18 +2902,17 @@ export const assignCourier = async (req, res) => {
       date: new Date(),
       updatedBy: req.user._id,
       changedBy: req.user._id,
-      remark:
-        `Courier assigned: ${courier.name}. Tracking: ${trackingNumber}`,
+      remark: `Courier assigned: ${courier.name}. Tracking: ${trackingNumber}`,
     });
 
     /* =====================================================
        14. SAVE ORDER
     ===================================================== */
-console.log("📝 ABOUT TO SAVE ORDER", {
-  orderId: order._id?.toString(),
-  oldStatus: order.status,
-  newStatus: status,
-});
+    console.log("📝 ABOUT TO SAVE ORDER", {
+      orderId: order._id?.toString(),
+      oldStatus: order.status,
+      newStatus: status,
+    });
     await order.save();
 
     /* =====================================================
@@ -3469,11 +2946,9 @@ console.log("📝 ABOUT TO SAVE ORDER", {
         vehicleType: courier.vehicleType,
         vehicleNumber: courier.vehicleNumber,
         serviceAreas: courier.serviceAreas,
-        estimatedDeliveryMinutes:
-          courier.estimatedDeliveryMinutes,
+        estimatedDeliveryMinutes: courier.estimatedDeliveryMinutes,
         status: courier.status,
-        verificationStatus:
-          courier.verificationStatus,
+        verificationStatus: courier.verificationStatus,
         isActive: courier.isActive,
       },
 
@@ -3485,37 +2960,24 @@ console.log("📝 ABOUT TO SAVE ORDER", {
       },
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to assign courier",
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined,
+      message: error.message || "Failed to assign courier",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
-
 
 /* =========================================================
    UPDATE TRACKING
    ADMIN ONLY
 ========================================================= */
 
-export const updateTracking = async (
-  req,
-  res,
-) => {
+export const updateTracking = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    const {
-      trackingNumber,
-      trackingUrl,
-    } = req.body;
+    const { trackingNumber, trackingUrl } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({
@@ -3524,8 +2986,7 @@ export const updateTracking = async (
       });
     }
 
-    const order =
-      await Order.findById(orderId);
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
@@ -3537,8 +2998,7 @@ export const updateTracking = async (
     if (!trackingNumber) {
       return res.status(400).json({
         success: false,
-        message:
-          "Tracking number is required",
+        message: "Tracking number is required",
       });
     }
 
@@ -3546,32 +3006,26 @@ export const updateTracking = async (
       order.shipping = {};
     }
 
-    order.shipping.trackingNumber =
-      String(trackingNumber).trim();
+    order.shipping.trackingNumber = String(trackingNumber).trim();
 
     /*
       Optional custom tracking URL.
       If omitted, use Odikart tracking page.
     */
     order.shipping.trackingUrl =
-      trackingUrl ||
-      `${TRACK_ORDER_URL}/${order.orderNumber}`;
+      trackingUrl || `${TRACK_ORDER_URL}/${order.orderNumber}`;
 
     await order.save();
 
     return res.status(200).json({
       success: true,
-      message:
-        "Tracking updated successfully",
+      message: "Tracking updated successfully",
       order,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to update tracking",
+      message: error.message || "Failed to update tracking",
     });
   }
 };
@@ -3581,17 +3035,11 @@ export const updateTracking = async (
    ADMIN ONLY
 ========================================================= */
 
-export const changeCourier = async (
-  req,
-  res,
-) => {
+export const changeCourier = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    const {
-      courierId,
-      trackingNumber,
-    } = req.body;
+    const { courierId, trackingNumber } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({
@@ -3607,27 +3055,21 @@ export const changeCourier = async (
       });
     }
 
-    const order =
-      await Order.findById(orderId);
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    const courier =
-      await Courier.findById(
-        courierId,
-      );
+    const courier = await Courier.findById(courierId);
 
     if (!courier) {
       return res.status(404).json({
         success: false,
-        message:
-          "Courier not found",
+        message: "Courier not found",
       });
     }
 
@@ -3643,48 +3085,38 @@ export const changeCourier = async (
     if (!trackingNumber) {
       return res.status(400).json({
         success: false,
-        message:
-          "Tracking number is required",
+        message: "Tracking number is required",
       });
     }
 
-    const previousCourierId =
-      order.shipping?.courier;
+    const previousCourierId = order.shipping?.courier;
 
     /*
       Release old courier.
     */
     if (
       previousCourierId &&
-      previousCourierId.toString() !==
-        courier._id.toString()
+      previousCourierId.toString() !== courier._id.toString()
     ) {
-      await Courier.findByIdAndUpdate(
-        previousCourierId,
-        {
-          $set: {
-            status: "available",
-            isLocationSharing: false,
-          },
+      await Courier.findByIdAndUpdate(previousCourierId, {
+        $set: {
+          status: "available",
+          isLocationSharing: false,
         },
-      );
+      });
     }
 
     if (!order.shipping) {
       order.shipping = {};
     }
 
-    order.shipping.courier =
-      courier._id;
+    order.shipping.courier = courier._id;
 
-    order.shipping.courierName =
-      courier.name;
+    order.shipping.courierName = courier.name;
 
-    order.shipping.trackingNumber =
-      String(trackingNumber).trim();
+    order.shipping.trackingNumber = String(trackingNumber).trim();
 
-    order.shipping.trackingUrl =
-      `${TRACK_ORDER_URL}/${order.orderNumber}`;
+    order.shipping.trackingUrl = `${TRACK_ORDER_URL}/${order.orderNumber}`;
 
     order.shipping.estimatedDelivery =
       courier.estimatedDeliveryMinutes ||
@@ -3706,39 +3138,30 @@ export const changeCourier = async (
     const io = req.app.get("io");
 
     if (io) {
-      io.to(`courier:${courier._id}`).emit(
-        "order-assigned",
-        {
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          status: order.status,
-        },
-      );
+      io.to(`courier:${courier._id}`).emit("order-assigned", {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+      });
     }
 
     return res.status(200).json({
       success: true,
-      message:
-        "Courier changed successfully",
+      message: "Courier changed successfully",
       order,
       courier: {
         _id: courier._id,
         name: courier.name,
         phone: courier.phone,
-        vehicleType:
-          courier.vehicleType,
-        vehicleNumber:
-          courier.vehicleNumber,
+        vehicleType: courier.vehicleType,
+        vehicleNumber: courier.vehicleNumber,
         status: courier.status,
       },
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to change courier",
+      message: error.message || "Failed to change courier",
     });
   }
 };
@@ -3747,30 +3170,22 @@ export const changeCourier = async (
    GET COURIER DETAILS
 ========================================================= */
 
-export const getCourierDetails = async (
-  req,
-  res,
-) => {
+export const getCourierDetails = async (req, res) => {
   try {
-    const order =
-      await Order.findById(
-        req.params.orderId,
-      ).populate({
-        path: "shipping.courier",
-        select:
-          "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
-      });
+    const order = await Order.findById(req.params.orderId).populate({
+      path: "shipping.courier",
+      select:
+        "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
+    });
 
     if (!order) {
       return res.status(404).json({
         success: false,
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    const courier =
-      order.shipping?.courier;
+    const courier = order.shipping?.courier;
 
     let safeCourier = null;
 
@@ -3778,78 +3193,51 @@ export const getCourierDetails = async (
       safeCourier = {
         _id: courier._id,
         name: courier.name,
-        photo:
-          courier.photo || "",
-        vehicleType:
-          courier.vehicleType || "",
-        vehicleNumber:
-          courier.vehicleNumber || "",
-        rating:
-          courier.rating ?? 5,
-        totalDeliveries:
-          courier.totalDeliveries || 0,
-        successfulDeliveries:
-          courier.successfulDeliveries || 0,
+        photo: courier.photo || "",
+        vehicleType: courier.vehicleType || "",
+        vehicleNumber: courier.vehicleNumber || "",
+        rating: courier.rating ?? 5,
+        totalDeliveries: courier.totalDeliveries || 0,
+        successfulDeliveries: courier.successfulDeliveries || 0,
 
         /*
           Phone is shown only if
           courier/admin settings allow it.
         */
-        phone:
-          courier.showPhoneToCustomer ===
-          true
-            ? courier.phone
-            : undefined,
+        phone: courier.showPhoneToCustomer === true ? courier.phone : undefined,
 
         currentLocation:
-          courier.isLocationSharing ===
-          true
-            ? courier.currentLocation
-            : null,
+          courier.isLocationSharing === true ? courier.currentLocation : null,
 
         locationUpdatedAt:
-          courier.isLocationSharing ===
-          true
-            ? courier.locationUpdatedAt
-            : null,
+          courier.isLocationSharing === true ? courier.locationUpdatedAt : null,
 
-        isLocationSharing:
-          courier.isLocationSharing ===
-          true,
+        isLocationSharing: courier.isLocationSharing === true,
       };
     }
 
     return res.status(200).json({
       success: true,
 
-      courier:
-        safeCourier,
+      courier: safeCourier,
 
-      trackingNumber:
-        order.shipping
-          ?.trackingNumber || "",
+      trackingNumber: order.shipping?.trackingNumber || "",
 
       trackingUrl:
-        order.shipping
-          ?.trackingUrl ||
+        order.shipping?.trackingUrl ||
         `${TRACK_ORDER_URL}/${order.orderNumber}`,
 
       estimatedDelivery:
-        order.shipping
-          ?.estimatedDelivery ||
+        order.shipping?.estimatedDelivery ||
         courier?.estimatedDeliveryMinutes ||
         null,
 
-      orderStatus:
-        order.status,
+      orderStatus: order.status,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
-      message:
-        error.message ||
-        "Failed to get courier details",
+      message: error.message || "Failed to get courier details",
     });
   }
 };
@@ -3858,45 +3246,27 @@ export const getCourierDetails = async (
    REQUEST RETURN
 ========================================================= */
 
-export const requestReturn = async (
-  req,
-  res,
-) => {
+export const requestReturn = async (req, res) => {
   try {
-    const {
-      orderId,
-    } = req.params;
+    const { orderId } = req.params;
 
-    const {
-      reason,
-      comment,
-      images,
-      videos,
-    } = req.body;
+    const { reason, comment, images, videos } = req.body;
 
-    const order =
-      await Order.findById(
-        orderId,
-      );
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
 
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    if (
-      order.userId.toString() !==
-      req.user._id.toString()
-    ) {
+    if (order.userId.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
 
-        message:
-          "Unauthorized",
+        message: "Unauthorized",
       });
     }
 
@@ -3904,8 +3274,7 @@ export const requestReturn = async (
       return res.status(400).json({
         success: false,
 
-        message:
-          "Only delivered orders can be returned",
+        message: "Only delivered orders can be returned",
       });
     }
 
@@ -3937,8 +3306,7 @@ export const requestReturn = async (
       return res.status(400).json({
         success: false,
 
-        message:
-          "Return reason is required",
+        message: "Return reason is required",
       });
     }
 
@@ -3946,30 +3314,19 @@ export const requestReturn = async (
       order.returnDetails = {};
     }
 
-    order.status =
-      "Return Requested";
+    order.status = "Return Requested";
 
-    order.returnDetails.requested =
-      true;
+    order.returnDetails.requested = true;
 
-    order.returnDetails.requestedAt =
-      new Date();
+    order.returnDetails.requestedAt = new Date();
 
-    order.returnDetails.reason =
-      reason;
+    order.returnDetails.reason = reason;
 
-    order.returnDetails.customerComment =
-      comment || "";
+    order.returnDetails.customerComment = comment || "";
 
-    order.returnDetails.images =
-      Array.isArray(images)
-        ? images
-        : [];
+    order.returnDetails.images = Array.isArray(images) ? images : [];
 
-    order.returnDetails.videos =
-      Array.isArray(videos)
-        ? videos
-        : [];
+    order.returnDetails.videos = Array.isArray(videos) ? videos : [];
 
     appendStatusHistory(
       order,
@@ -3983,18 +3340,15 @@ export const requestReturn = async (
     return res.status(200).json({
       success: true,
 
-      message:
-        "Return request submitted",
+      message: "Return request submitted",
 
       order,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
-      message:
-        error.message,
+      message: error.message,
     });
   }
 };
@@ -4003,34 +3357,23 @@ export const requestReturn = async (
    APPROVE RETURN
 ========================================================= */
 
-export const approveReturn = async (
-  req,
-  res,
-) => {
+export const approveReturn = async (req, res) => {
   try {
-    const order =
-      await Order.findById(
-        req.params.orderId,
-      );
+    const order = await Order.findById(req.params.orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
 
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    if (
-      order.status !==
-      "Return Requested"
-    ) {
+    if (order.status !== "Return Requested") {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Order is not awaiting return approval",
+        message: "Order is not awaiting return approval",
       });
     }
 
@@ -4038,21 +3381,17 @@ export const approveReturn = async (
       order.returnDetails = {};
     }
 
-    order.status =
-      "Return Approved";
+    order.status = "Return Approved";
 
-    order.returnDetails.approvedAt =
-      new Date();
+    order.returnDetails.approvedAt = new Date();
 
-    order.returnDetails.sellerRemark =
-      req.body.remark || "";
+    order.returnDetails.sellerRemark = req.body.remark || "";
 
     appendStatusHistory(
       order,
       "Return Approved",
       req.user._id,
-      req.body.remark ||
-        "Return Approved",
+      req.body.remark || "Return Approved",
     );
 
     await order.save();
@@ -4060,18 +3399,15 @@ export const approveReturn = async (
     return res.status(200).json({
       success: true,
 
-      message:
-        "Return approved",
+      message: "Return approved",
 
       order,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
-      message:
-        error.message,
+      message: error.message,
     });
   }
 };
@@ -4080,34 +3416,23 @@ export const approveReturn = async (
    REJECT RETURN
 ========================================================= */
 
-export const rejectReturn = async (
-  req,
-  res,
-) => {
+export const rejectReturn = async (req, res) => {
   try {
-    const order =
-      await Order.findById(
-        req.params.orderId,
-      );
+    const order = await Order.findById(req.params.orderId);
 
     if (!order) {
       return res.status(404).json({
         success: false,
 
-        message:
-          "Order not found",
+        message: "Order not found",
       });
     }
 
-    if (
-      order.status !==
-      "Return Requested"
-    ) {
+    if (order.status !== "Return Requested") {
       return res.status(400).json({
         success: false,
 
-        message:
-          "Order is not awaiting return approval",
+        message: "Order is not awaiting return approval",
       });
     }
 
@@ -4128,21 +3453,17 @@ export const rejectReturn = async (
       Now actual status is Return Rejected.
     */
 
-    order.status =
-      "Return Rejected";
+    order.status = "Return Rejected";
 
-    order.returnDetails.rejectedAt =
-      new Date();
+    order.returnDetails.rejectedAt = new Date();
 
-    order.returnDetails.sellerRemark =
-      req.body.remark || "";
+    order.returnDetails.sellerRemark = req.body.remark || "";
 
     appendStatusHistory(
       order,
       "Return Rejected",
       req.user._id,
-      req.body.remark ||
-        "Return Rejected",
+      req.body.remark || "Return Rejected",
     );
 
     await order.save();
@@ -4150,18 +3471,15 @@ export const rejectReturn = async (
     return res.status(200).json({
       success: true,
 
-      message:
-        "Return rejected",
+      message: "Return rejected",
 
       order,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
 
-      message:
-        error.message,
+      message: error.message,
     });
   }
 };
@@ -4170,939 +3488,691 @@ export const rejectReturn = async (
    ASSIGN RETURN COURIER
 ========================================================= */
 
-export const assignReturnCourier =
-  async (req, res) => {
-    try {
-      const {
-        courierId,
-        trackingNumber,
-        estimatedDelivery,
-      } = req.body;
+export const assignReturnCourier = async (req, res) => {
+  try {
+    const { courierId, trackingNumber, estimatedDelivery } = req.body;
 
-      const order =
-        await Order.findById(
-          req.params.orderId,
-        );
+    const order = await Order.findById(req.params.orderId);
 
-      if (!order) {
-        return res.status(404).json({
-          success: false,
-
-          message:
-            "Order not found",
-        });
-      }
-
-      if (
-        order.status !==
-        "Return Approved"
-      ) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Return must be approved before scheduling pickup",
-        });
-      }
-
-      const courier =
-        await Courier.findById(
-          courierId,
-        );
-
-      if (!courier) {
-        return res.status(404).json({
-          success: false,
-
-          message:
-            "Courier not found",
-        });
-      }
-
-      if (!trackingNumber) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Tracking number is required",
-        });
-      }
-
-      if (!order.shipping) {
-        order.shipping = {};
-      }
-
-      if (!order.returnDetails) {
-        order.returnDetails = {};
-      }
-
-      order.shipping.courier =
-        courier._id;
-
-      order.shipping.courierName =
-        courier.name;
-
-      order.shipping.trackingNumber =
-        trackingNumber;
-
-      order.shipping.trackingUrl =
-        `${courier.trackingUrl || ""}${trackingNumber}`;
-
-      order.shipping.estimatedDelivery =
-        estimatedDelivery;
-
-      order.status =
-        "Return Pickup Scheduled";
-
-      order.returnDetails
-        .pickupScheduledAt =
-        new Date();
-
-      appendStatusHistory(
-        order,
-        "Return Pickup Scheduled",
-        req.user._id,
-        "Courier Assigned",
-      );
-
-      await order.save();
-
-      return res.status(200).json({
-        success: true,
-
-        message:
-          "Return courier assigned",
-
-        order,
-      });
-    } catch (error) {
-
-      return res.status(500).json({
+    if (!order) {
+      return res.status(404).json({
         success: false,
 
-        message:
-          error.message,
+        message: "Order not found",
       });
     }
-  };
+
+    if (order.status !== "Return Approved") {
+      return res.status(400).json({
+        success: false,
+
+        message: "Return must be approved before scheduling pickup",
+      });
+    }
+
+    const courier = await Courier.findById(courierId);
+
+    if (!courier) {
+      return res.status(404).json({
+        success: false,
+
+        message: "Courier not found",
+      });
+    }
+
+    if (!trackingNumber) {
+      return res.status(400).json({
+        success: false,
+
+        message: "Tracking number is required",
+      });
+    }
+
+    if (!order.shipping) {
+      order.shipping = {};
+    }
+
+    if (!order.returnDetails) {
+      order.returnDetails = {};
+    }
+
+    order.shipping.courier = courier._id;
+
+    order.shipping.courierName = courier.name;
+
+    order.shipping.trackingNumber = trackingNumber;
+
+    order.shipping.trackingUrl = `${courier.trackingUrl || ""}${trackingNumber}`;
+
+    order.shipping.estimatedDelivery = estimatedDelivery;
+
+    order.status = "Return Pickup Scheduled";
+
+    order.returnDetails.pickupScheduledAt = new Date();
+
+    appendStatusHistory(
+      order,
+      "Return Pickup Scheduled",
+      req.user._id,
+      "Courier Assigned",
+    );
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+
+      message: "Return courier assigned",
+
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+
+      message: error.message,
+    });
+  }
+};
 
 /* =========================================================
    RETURN PICKED UP
 ========================================================= */
 
-export const returnPickedUp =
-  async (req, res) => {
-    try {
-      const order =
-        await Order.findById(
-          req.params.orderId,
-        );
+export const returnPickedUp = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
 
-      if (!order) {
-        return res.status(404).json({
-          success: false,
-
-          message:
-            "Order not found",
-        });
-      }
-
-      if (
-        order.status !==
-        "Return Pickup Scheduled"
-      ) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Return pickup has not been scheduled",
-        });
-      }
-
-      if (!order.returnDetails) {
-        order.returnDetails = {};
-      }
-
-      order.status =
-        "Return Picked Up";
-
-      order.returnDetails.pickedUpAt =
-        new Date();
-
-      appendStatusHistory(
-        order,
-        "Return Picked Up",
-        req.user._id,
-        "Courier picked the product",
-      );
-
-      await order.save();
-
-      return res.status(200).json({
-        success: true,
-
-        message:
-          "Return pickup completed",
-
-        order,
-      });
-    } catch (error) {
-
-      return res.status(500).json({
+    if (!order) {
+      return res.status(404).json({
         success: false,
 
-        message:
-          error.message,
+        message: "Order not found",
       });
     }
-  };
+
+    if (order.status !== "Return Pickup Scheduled") {
+      return res.status(400).json({
+        success: false,
+
+        message: "Return pickup has not been scheduled",
+      });
+    }
+
+    if (!order.returnDetails) {
+      order.returnDetails = {};
+    }
+
+    order.status = "Return Picked Up";
+
+    order.returnDetails.pickedUpAt = new Date();
+
+    appendStatusHistory(
+      order,
+      "Return Picked Up",
+      req.user._id,
+      "Courier picked the product",
+    );
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+
+      message: "Return pickup completed",
+
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+
+      message: error.message,
+    });
+  }
+};
 
 /* =========================================================
    RECEIVE RETURNED PRODUCT
 ========================================================= */
 
-export const receiveReturnedProduct =
-  async (req, res) => {
-    try {
-      const order =
-        await Order.findById(
-          req.params.orderId,
-        );
+export const receiveReturnedProduct = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
 
-      if (!order) {
-        return res.status(404).json({
-          success: false,
-
-          message:
-            "Order not found",
-        });
-      }
-
-      if (
-        order.status !==
-        "Return Picked Up"
-      ) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Return has not been picked up",
-        });
-      }
-
-      if (!order.returnDetails) {
-        order.returnDetails = {};
-      }
-
-      order.status =
-        "Received by Admin";
-
-      order.returnDetails
-        .receivedByAdminAt =
-        new Date();
-
-      appendStatusHistory(
-        order,
-        "Received by Admin",
-        req.user._id,
-        "Product received",
-      );
-
-      await order.save();
-
-      return res.status(200).json({
-        success: true,
-
-        message:
-          "Product received",
-
-        order,
-      });
-    } catch (error) {
-
-      return res.status(500).json({
+    if (!order) {
+      return res.status(404).json({
         success: false,
 
-        message:
-          error.message,
+        message: "Order not found",
       });
     }
-  };
+
+    if (order.status !== "Return Picked Up") {
+      return res.status(400).json({
+        success: false,
+
+        message: "Return has not been picked up",
+      });
+    }
+
+    if (!order.returnDetails) {
+      order.returnDetails = {};
+    }
+
+    order.status = "Received by Admin";
+
+    order.returnDetails.receivedByAdminAt = new Date();
+
+    appendStatusHistory(
+      order,
+      "Received by Admin",
+      req.user._id,
+      "Product received",
+    );
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+
+      message: "Product received",
+
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+
+      message: error.message,
+    });
+  }
+};
 
 /* =========================================================
    INSPECT RETURNED PRODUCT
 ========================================================= */
 
-export const inspectReturnedProduct =
-  async (req, res) => {
-    try {
-      const {
-        inspectionStatus,
-        remark,
-      } = req.body;
+export const inspectReturnedProduct = async (req, res) => {
+  try {
+    const { inspectionStatus, remark } = req.body;
 
-      const order =
-        await Order.findById(
-          req.params.orderId,
-        );
+    const order = await Order.findById(req.params.orderId);
 
-      if (!order) {
-        return res.status(404).json({
-          success: false,
-
-          message:
-            "Order not found",
-        });
-      }
-
-      if (
-        order.status !==
-        "Received by Admin"
-      ) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Returned product must be received before inspection",
-        });
-      }
-
-      if (
-        ![
-          "Passed",
-          "Failed",
-        ].includes(
-          inspectionStatus,
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Inspection status must be Passed or Failed",
-        });
-      }
-
-      if (!order.returnDetails) {
-        order.returnDetails = {};
-      }
-
-      if (
-        inspectionStatus ===
-        "Passed"
-      ) {
-        order.status =
-          "Refund Processing";
-
-        order.returnDetails
-          .refundStartedAt =
-          new Date();
-      } else {
-        order.status =
-          "Return Rejected";
-      }
-
-      appendStatusHistory(
-        order,
-        order.status,
-        req.user._id,
-        remark || "",
-      );
-
-      await order.save();
-
-      return res.status(200).json({
-        success: true,
-
-        message:
-          "Inspection completed",
-
-        order,
-      });
-    } catch (error) {
-
-      return res.status(500).json({
+    if (!order) {
+      return res.status(404).json({
         success: false,
 
-        message:
-          error.message,
+        message: "Order not found",
       });
     }
-  };
+
+    if (order.status !== "Received by Admin") {
+      return res.status(400).json({
+        success: false,
+
+        message: "Returned product must be received before inspection",
+      });
+    }
+
+    if (!["Passed", "Failed"].includes(inspectionStatus)) {
+      return res.status(400).json({
+        success: false,
+
+        message: "Inspection status must be Passed or Failed",
+      });
+    }
+
+    if (!order.returnDetails) {
+      order.returnDetails = {};
+    }
+
+    if (inspectionStatus === "Passed") {
+      order.status = "Refund Processing";
+
+      order.returnDetails.refundStartedAt = new Date();
+    } else {
+      order.status = "Return Rejected";
+    }
+
+    appendStatusHistory(order, order.status, req.user._id, remark || "");
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+
+      message: "Inspection completed",
+
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+
+      message: error.message,
+    });
+  }
+};
 
 /* =========================================================
    COMPLETE REFUND
 ========================================================= */
 
-export const completeRefund =
-  async (req, res) => {
-    try {
-      const order =
-        await Order.findById(
-          req.params.orderId,
-        );
+export const completeRefund = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
 
-      if (!order) {
-        return res.status(404).json({
-          success: false,
+    if (!order) {
+      return res.status(404).json({
+        success: false,
 
-          message:
-            "Order not found",
-        });
-      }
+        message: "Order not found",
+      });
+    }
 
-      if (
-        order.status !==
-        "Refund Processing"
-      ) {
-        return res.status(400).json({
-          success: false,
+    if (order.status !== "Refund Processing") {
+      return res.status(400).json({
+        success: false,
 
-          message:
-            "Refund not started",
-        });
-      }
+        message: "Refund not started",
+      });
+    }
 
-      if (!order.refund) {
-        order.refund = {};
-      }
+    if (!order.refund) {
+      order.refund = {};
+    }
 
-      /* ===================================================
+    /* ===================================================
          RAZORPAY REFUND
       =================================================== */
 
-      if (
-        order.payment?.method ===
-        "Razorpay"
-      ) {
-        if (
-          !order.payment
-            ?.gateway?.paymentId
-        ) {
-          return res.status(400).json({
-            success: false,
+    if (order.payment?.method === "Razorpay") {
+      if (!order.payment?.gateway?.paymentId) {
+        return res.status(400).json({
+          success: false,
 
-            message:
-              "Razorpay payment ID missing",
-          });
-        }
+          message: "Razorpay payment ID missing",
+        });
+      }
 
-        /*
+      /*
           Prevent duplicate refund.
         */
 
-        if (
-          order.payment.status ===
-          "Refunded"
-        ) {
-          return res.status(400).json({
-            success: false,
+      if (order.payment.status === "Refunded") {
+        return res.status(400).json({
+          success: false,
 
-            message:
-              "Payment has already been refunded",
-          });
-        }
-
-        const refund =
-          await razorpay.payments.refund(
-            order.payment.gateway
-              .paymentId,
-            {
-              amount:
-                Math.round(
-                  Number(
-                    order.pricing
-                      .total || 0,
-                  ) * 100,
-                ),
-            },
-          );
-
-        order.refund.refundId =
-          refund.id;
+          message: "Payment has already been refunded",
+        });
       }
 
-      /* ===================================================
+      const refund = await razorpay.payments.refund(
+        order.payment.gateway.paymentId,
+        {
+          amount: Math.round(Number(order.pricing.total || 0) * 100),
+        },
+      );
+
+      order.refund.refundId = refund.id;
+    }
+
+    /* ===================================================
          MARK REFUND COMPLETED
       =================================================== */
 
-      order.payment.status =
-        "Refunded";
+    order.payment.status = "Refunded";
 
-      order.refund.status =
-        "Completed";
+    order.refund.status = "Completed";
 
-      order.refund.amount =
-        Number(
-          order.pricing?.total || 0,
-        );
+    order.refund.amount = Number(order.pricing?.total || 0);
 
-      order.refund.refundedAt =
-        new Date();
+    order.refund.refundedAt = new Date();
 
-      order.status =
-        "Refund Completed";
+    order.status = "Refund Completed";
 
-      appendStatusHistory(
-        order,
-        "Refund Completed",
-        req.user._id,
-        "Refund transferred",
-      );
+    appendStatusHistory(
+      order,
+      "Refund Completed",
+      req.user._id,
+      "Refund transferred",
+    );
 
-      await order.save();
+    await order.save();
 
-      return res.status(200).json({
-        success: true,
+    return res.status(200).json({
+      success: true,
 
-        message:
-          "Refund completed",
+      message: "Refund completed",
 
-        order,
-      });
-    } catch (error) {
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
 
-      return res.status(500).json({
-        success: false,
-
-        message:
-          error.message ||
-          "Refund failed",
-      });
-    }
-  };
+      message: error.message || "Refund failed",
+    });
+  }
+};
 
 /* =========================================================
    SELLER ANALYTICS
 ========================================================= */
 
-export const getSellerAnalytics =
-  async (req, res) => {
-    try {
-      const sellerId =
-        req.user._id;
+export const getSellerAnalytics = async (req, res) => {
+  try {
+    const sellerId = req.user._id;
 
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          sellerId,
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
+    if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+      return res.status(400).json({
+        success: false,
 
-          message:
-            "Invalid seller ID",
-        });
-      }
+        message: "Invalid seller ID",
+      });
+    }
 
-      /* ===================================================
+    /* ===================================================
          FIND SELLER ORDERS
       =================================================== */
 
-      const orders =
-        await Order.find({
-          "items.sellerId":
-            sellerId,
-        }).lean();
+    const orders = await Order.find({
+      "items.sellerId": sellerId,
+    }).lean();
 
-      /* ===================================================
+    /* ===================================================
          SELLER ITEMS
       =================================================== */
 
-      const sellerItems = [];
+    const sellerItems = [];
 
-      orders.forEach(
-        (order) => {
-          const items =
-            order.items.filter(
-              (item) =>
-                item.sellerId?.toString() ===
-                sellerId.toString(),
-            );
-
-          items.forEach(
-            (item) => {
-              sellerItems.push({
-                ...item,
-
-                orderId:
-                  order._id,
-
-                orderNumber:
-                  order.orderNumber,
-
-                orderStatus:
-                  order.status,
-
-                createdAt:
-                  order.createdAt,
-              });
-            },
-          );
-        },
+    orders.forEach((order) => {
+      const items = order.items.filter(
+        (item) => item.sellerId?.toString() === sellerId.toString(),
       );
 
-      /* ===================================================
+      items.forEach((item) => {
+        sellerItems.push({
+          ...item,
+
+          orderId: order._id,
+
+          orderNumber: order.orderNumber,
+
+          orderStatus: order.status,
+
+          createdAt: order.createdAt,
+        });
+      });
+    });
+
+    /* ===================================================
          BASIC COUNTS
       =================================================== */
 
-      const totalOrders =
-        new Set(
-          sellerItems.map(
-            (item) =>
-              item.orderId.toString(),
-          ),
-        ).size;
+    const totalOrders = new Set(
+      sellerItems.map((item) => item.orderId.toString()),
+    ).size;
 
-      const totalProducts =
-        await Product.countDocuments({
-          seller: sellerId,
+    const totalProducts = await Product.countDocuments({
+      seller: sellerId,
 
-          isDeleted: false,
-        });
+      isDeleted: false,
+    });
 
-      /* ===================================================
+    /* ===================================================
          STATUS COUNTS
       =================================================== */
 
-      const statusCounts = {
-        pending: 0,
+    const statusCounts = {
+      pending: 0,
 
-        confirmed: 0,
+      confirmed: 0,
 
-        processing: 0,
+      processing: 0,
 
-        packed: 0,
+      packed: 0,
 
-        shipped: 0,
+      shipped: 0,
 
-        delivered: 0,
+      delivered: 0,
 
-        cancelled: 0,
+      cancelled: 0,
 
-        returned: 0,
-      };
+      returned: 0,
+    };
 
-      sellerItems.forEach(
-        (item) => {
-          switch (
-            item.orderStatus
-          ) {
-            case "Pending Payment":
-              statusCounts.pending++;
-              break;
+    sellerItems.forEach((item) => {
+      switch (item.orderStatus) {
+        case "Pending Payment":
+          statusCounts.pending++;
+          break;
 
-            case "Confirmed":
-              statusCounts.confirmed++;
-              break;
+        case "Confirmed":
+          statusCounts.confirmed++;
+          break;
 
-            case "Processing":
-              statusCounts.processing++;
-              break;
+        case "Processing":
+          statusCounts.processing++;
+          break;
 
-            case "Packed":
-              statusCounts.packed++;
-              break;
+        case "Packed":
+          statusCounts.packed++;
+          break;
 
-            case "Ready for Pickup":
-            case "Shipped":
-            case "In Transit":
-            case "Out for Delivery":
-              statusCounts.shipped++;
-              break;
+        case "Ready for Pickup":
+        case "Shipped":
+        case "In Transit":
+        case "Out for Delivery":
+          statusCounts.shipped++;
+          break;
 
-            case "Delivered":
-              statusCounts.delivered++;
-              break;
+        case "Delivered":
+          statusCounts.delivered++;
+          break;
 
-            case "Cancelled":
-              statusCounts.cancelled++;
-              break;
+        case "Cancelled":
+          statusCounts.cancelled++;
+          break;
 
-            case "Return Requested":
-            case "Return Approved":
-            case "Return Pickup Scheduled":
-            case "Return Picked Up":
-            case "Received by Admin":
-            case "Inspection":
-            case "Refund Processing":
-            case "Refund Completed":
-            case "Return Rejected":
-              statusCounts.returned++;
-              break;
-          }
-        },
-      );
+        case "Return Requested":
+        case "Return Approved":
+        case "Return Pickup Scheduled":
+        case "Return Picked Up":
+        case "Received by Admin":
+        case "Inspection":
+        case "Refund Processing":
+        case "Refund Completed":
+        case "Return Rejected":
+          statusCounts.returned++;
+          break;
+      }
+    });
 
-      /* ===================================================
+    /* ===================================================
          SALES
       =================================================== */
 
-      let totalSales = 0;
+    let totalSales = 0;
 
-      sellerItems.forEach(
-        (item) => {
-          const excludedStatuses = [
-            "Cancelled",
-            "Return Rejected",
-            "Refund Completed",
-          ];
+    sellerItems.forEach((item) => {
+      const excludedStatuses = [
+        "Cancelled",
+        "Return Rejected",
+        "Refund Completed",
+      ];
 
-          if (
-            !excludedStatuses.includes(
-              item.orderStatus,
-            )
-          ) {
-            totalSales +=
-              Number(item.price || 0) *
-              Number(item.quantity || 0);
-          }
-        },
-      );
+      if (!excludedStatuses.includes(item.orderStatus)) {
+        totalSales += Number(item.price || 0) * Number(item.quantity || 0);
+      }
+    });
 
-      totalSales = money(
-        totalSales,
-      );
+    totalSales = money(totalSales);
 
-      /* ===================================================
+    /* ===================================================
          COMMISSION
       =================================================== */
 
-      const commission =
-        money(
-          (totalSales *
-            COMMISSION_RATE) /
-            100,
-        );
+    const commission = money((totalSales * COMMISSION_RATE) / 100);
 
-      const sellerRevenue =
-        money(
-          totalSales -
-            commission,
-        );
+    const sellerRevenue = money(totalSales - commission);
 
-      /* ===================================================
+    /* ===================================================
          LOW STOCK
       =================================================== */
 
-      const lowStockProducts =
-        await Product.find({
-          seller: sellerId,
+    const lowStockProducts = await Product.find({
+      seller: sellerId,
 
-          isDeleted: false,
+      isDeleted: false,
 
-          "variants.stock": {
-            $lte: 5,
-          },
-        })
-          .select(
-            "title variants",
-          )
-          .lean();
+      "variants.stock": {
+        $lte: 5,
+      },
+    })
+      .select("title variants")
+      .lean();
 
-      /* ===================================================
+    /* ===================================================
          OUT OF STOCK
       =================================================== */
 
-      const outOfStockProducts =
-        await Product.find({
-          seller: sellerId,
+    const outOfStockProducts = await Product.find({
+      seller: sellerId,
 
-          isDeleted: false,
+      isDeleted: false,
 
-          variants: {
-            $elemMatch: {
-              stock: 0,
-            },
-          },
-        })
-          .select(
-            "title variants",
-          )
-          .lean();
-
-      return res.status(200).json({
-        success: true,
-
-        analytics: {
-          overview: {
-            totalProducts,
-
-            totalOrders,
-
-            totalSales,
-
-            totalRevenue:
-              sellerRevenue,
-
-            commission,
-
-            commissionRate:
-              COMMISSION_RATE,
-          },
-
-          orders: {
-            pending:
-              statusCounts.pending,
-
-            confirmed:
-              statusCounts.confirmed,
-
-            processing:
-              statusCounts.processing,
-
-            packed:
-              statusCounts.packed,
-
-            shipped:
-              statusCounts.shipped,
-
-            delivered:
-              statusCounts.delivered,
-
-            cancelled:
-              statusCounts.cancelled,
-
-            returned:
-              statusCounts.returned,
-          },
-
-          inventory: {
-            lowStock:
-              lowStockProducts.length,
-
-            outOfStock:
-              outOfStockProducts.length,
-          },
+      variants: {
+        $elemMatch: {
+          stock: 0,
         },
-      });
-    } catch (error) {
+      },
+    })
+      .select("title variants")
+      .lean();
 
-      return res.status(500).json({
-        success: false,
+    return res.status(200).json({
+      success: true,
 
-        message:
-          error.message,
-      });
-    }
-  };
+      analytics: {
+        overview: {
+          totalProducts,
+
+          totalOrders,
+
+          totalSales,
+
+          totalRevenue: sellerRevenue,
+
+          commission,
+
+          commissionRate: COMMISSION_RATE,
+        },
+
+        orders: {
+          pending: statusCounts.pending,
+
+          confirmed: statusCounts.confirmed,
+
+          processing: statusCounts.processing,
+
+          packed: statusCounts.packed,
+
+          shipped: statusCounts.shipped,
+
+          delivered: statusCounts.delivered,
+
+          cancelled: statusCounts.cancelled,
+
+          returned: statusCounts.returned,
+        },
+
+        inventory: {
+          lowStock: lowStockProducts.length,
+
+          outOfStock: outOfStockProducts.length,
+        },
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+
+      message: error.message,
+    });
+  }
+};
 
 /* =========================================================
    GET SELLER ORDERS
 ========================================================= */
 
-export const getSellerOrders =
-  async (req, res) => {
-    try {
-      const sellerId =
-        req.user._id;
+export const getSellerOrders = async (req, res) => {
+  try {
+    const sellerId = req.user._id;
 
-      const orders =
-        await Order.find({
-          "items.sellerId":
-            sellerId,
-        })
-          .populate(
-            "userId",
-            "firstName lastName email phone",
-          )
-          .populate(
-            "items.productId",
-            "title slug images thumbnail seller",
-          )
-          .sort({
-            createdAt: -1,
-          });
-
-      const sellerOrders =
-        orders.map(
-          (order) => {
-            const sellerItems =
-              order.items.filter(
-                (item) =>
-                  item.sellerId?.toString() ===
-                  sellerId.toString(),
-              );
-
-            const sellerTotal =
-              sellerItems.reduce(
-                (total, item) =>
-                  total +
-                  Number(
-                    item.price || 0,
-                  ) *
-                    Number(
-                      item.quantity ||
-                        0,
-                    ),
-                0,
-              );
-
-            return {
-              _id: order._id,
-
-              orderNumber:
-                order.orderNumber,
-
-              userId:
-                order.userId,
-
-              items:
-                sellerItems,
-
-              status:
-                order.status,
-
-              paymentStatus:
-                order.payment?.status ||
-                "Unknown",
-
-              paymentMethod:
-                order.payment?.method ||
-                "Unknown",
-
-              totalAmount:
-                money(sellerTotal),
-
-              shippingAddress:
-                order
-                  .deliveryAddress
-                  ?.address || null,
-
-              deliveryCustomer:
-                order
-                  .deliveryAddress
-                  ?.customer || null,
-
-              shipping:
-                order.shipping ||
-                null,
-
-              createdAt:
-                order.createdAt,
-
-              updatedAt:
-                order.updatedAt,
-            };
-          },
-        );
-
-      return res.status(200).json({
-        success: true,
-
-        count:
-          sellerOrders.length,
-
-        orders:
-          sellerOrders,
+    const orders = await Order.find({
+      "items.sellerId": sellerId,
+    })
+      .populate("userId", "firstName lastName email phone")
+      .populate("items.productId", "title slug images thumbnail seller")
+      .sort({
+        createdAt: -1,
       });
-    } catch (error) {
 
-      return res.status(500).json({
-        success: false,
+    const sellerOrders = orders.map((order) => {
+      const sellerItems = order.items.filter(
+        (item) => item.sellerId?.toString() === sellerId.toString(),
+      );
 
-        message:
-          error.message,
-      });
-    }
-  };
+      const sellerTotal = sellerItems.reduce(
+        (total, item) =>
+          total + Number(item.price || 0) * Number(item.quantity || 0),
+        0,
+      );
+
+      return {
+        _id: order._id,
+
+        orderNumber: order.orderNumber,
+
+        userId: order.userId,
+
+        items: sellerItems,
+
+        status: order.status,
+
+        paymentStatus: order.payment?.status || "Unknown",
+
+        paymentMethod: order.payment?.method || "Unknown",
+
+        totalAmount: money(sellerTotal),
+
+        shippingAddress: order.deliveryAddress?.address || null,
+
+        deliveryCustomer: order.deliveryAddress?.customer || null,
+
+        shipping: order.shipping || null,
+
+        createdAt: order.createdAt,
+
+        updatedAt: order.updatedAt,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+
+      count: sellerOrders.length,
+
+      orders: sellerOrders,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+
+      message: error.message,
+    });
+  }
+};
