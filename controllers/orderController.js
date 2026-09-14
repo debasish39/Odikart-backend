@@ -411,73 +411,69 @@ export const saveOrder = async (req, res) => {
         });
       }
 
-      /* =================================================
-   12. PRICE FROM DATABASE
+/* =================================================
+   12. FINAL SELLING PRICE FROM DATABASE
 ================================================= */
 
-      const price = Number(variant.price || 0);
+/*
+ * IMPORTANT:
+ *
+ * variant.price is already the FINAL SELLING PRICE.
+ *
+ * Product/seller/variant offers are applied earlier
+ * when the product is created/updated.
+ *
+ * Therefore saveOrder MUST NOT apply any product
+ * discount again.
+ *
+ * Example:
+ *
+ * Original Price: ₹599
+ * Offer: 30%
+ * variant.price: ₹419
+ *
+ * Order price must remain ₹419.
+ *
+ * DO NOT calculate:
+ *
+ * ₹419 - 30%
+ *
+ * because that would double-discount the product.
+ */
 
-      const itemSubtotal = price * quantity;
+const price = Number(variant.price || 0);
 
-      /* =================================================
-   13. PRODUCT DISCOUNT
-================================================= */
+if (!Number.isFinite(price) || price < 0) {
+  return res.status(400).json({
+    success: false,
+    message: `Invalid price for ${product.title}`,
+  });
+}
 
-      let productDiscount = 0;
+const itemSubtotal = price * quantity;
 
-      const now = new Date();
+/*
+ * Product discount is already included in variant.price.
+ *
+ * Keep this field only for order/history information.
+ * It must NEVER be subtracted from itemSubtotal again.
+ */
+const originalPrice = Number(
+  variant.originalPrice || variant.price || 0
+);
 
-      // -------------------------------------------------
-      // VARIANT DISCOUNT
-      // -------------------------------------------------
+const productDiscount = Math.max(
+  0,
+  (originalPrice - price) * quantity
+);
 
-      let discountPercentage = Number(variant.discountPercentage || 0);
-
-      // -------------------------------------------------
-      // PRODUCT OFFER
-      // -------------------------------------------------
-
-      if (product.offer?.enabled === true) {
-        const started =
-          !product.offer.startDate || new Date(product.offer.startDate) <= now;
-
-        const notExpired =
-          !product.offer.endDate || new Date(product.offer.endDate) >= now;
-
-        if (started && notExpired) {
-          const offerValue = Number(product.offer.value || 0);
-
-          if (product.offer.discountType === "percentage") {
-            // Product offer overrides
-            // variant percentage discount
-            if (offerValue > 0) {
-              discountPercentage = offerValue;
-            }
-          }
-
-          if (product.offer.discountType === "fixed") {
-            productDiscount = offerValue * quantity;
-          }
-        }
-      }
-
-      // -------------------------------------------------
-      // PERCENTAGE DISCOUNT
-      // -------------------------------------------------
-
-      if (productDiscount === 0 && discountPercentage > 0) {
-        productDiscount = (itemSubtotal * discountPercentage) / 100;
-      }
-
-      // Never allow discount above price
-      productDiscount = Math.min(productDiscount, itemSubtotal);
-
-      // -------------------------------------------------
-      // FINAL ITEM SUBTOTAL AFTER DISCOUNT
-      // -------------------------------------------------
-
-      const finalItemSubtotal = itemSubtotal - productDiscount;
-
+/*
+ * FINAL ITEM SUBTOTAL
+ *
+ * This is the actual amount customer pays for the
+ * product before tax/coupon/shipping.
+ */
+const finalItemSubtotal = itemSubtotal;
       /* =================================================
    TAX
 ================================================= */
