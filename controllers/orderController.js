@@ -1246,124 +1246,237 @@ export const getUserOrders = async (req, res) => {
 
 /* =========================================================
    GET SINGLE ORDER
-========================================================= */
+   ========================================================= */
 
 export const getSingleOrder = async (req, res) => {
   try {
     const { id } = req.params;
 
+    console.log("\n========================================");
+    console.log("🔎 GET SINGLE ORDER DEBUG");
+    console.log("========================================");
+
+    console.log("📌 Requested Order ID:", id);
+
+    console.log("👤 req.user:", {
+      id: req.user?._id?.toString(),
+      role: req.user?.role,
+      email: req.user?.email,
+    });
+
+    /* =========================================
+       VALIDATE ORDER ID
+    ========================================= */
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
+      console.log("❌ Invalid Order ID");
+
       return res.status(400).json({
         success: false,
         message: "Invalid order ID",
       });
     }
 
+    /* =========================================
+       FETCH ORDER
+    ========================================= */
+
     const order = await Order.findById(id)
       .populate({
         path: "userId",
-
         select: "firstName lastName email phone image",
       })
       .populate({
         path: "shipping.courier",
-
         select:
           "name phone photo vehicleType vehicleNumber serviceAreas estimatedDeliveryMinutes verificationStatus status isActive currentLocation locationUpdatedAt isLocationSharing rating totalDeliveries successfulDeliveries showPhoneToCustomer",
       })
       .populate({
         path: "items.productId",
-
-        select: "title slug images thumbnail brand category variants",
+        select:
+          "title slug images thumbnail brand category variants",
       });
 
+    console.log("📦 Order found:", !!order);
+
+    /* =========================================
+       ORDER NOT FOUND
+    ========================================= */
+
     if (!order) {
+      console.log("❌ Order not found");
+
       return res.status(404).json({
         success: false,
-
         message: "Order not found",
       });
     }
 
-    const userId = req.user._id.toString();
+    /* =========================================
+       USER INFORMATION
+    ========================================= */
 
+    const userId = req.user._id.toString();
     const role = req.user.role;
 
-    /* =====================================================
+    /*
+      Because userId is populated above, support both:
+
+      order.userId._id
+      OR
+      order.userId
+    */
+
+    const orderOwnerId = order.userId?._id
+      ? order.userId._id.toString()
+      : order.userId?.toString();
+
+    console.log("📦 ORDER DEBUG:");
+    console.log({
+      orderId: order._id?.toString(),
+      orderUserId: orderOwnerId,
+      loggedInUserId: userId,
+      role,
+      orderNumber: order.orderNumber,
+    });
+
+    console.log("🔐 AUTHORIZATION CHECK");
+    console.log("Logged User ID:", userId);
+    console.log("Logged User Role:", role);
+    console.log("Order Owner ID:", orderOwnerId);
+
+    /* =========================================
+       FIND SELLER ITEMS
+    ========================================= */
+
+    const sellerItems = Array.isArray(order.items)
+      ? order.items.filter(
+          (item) =>
+            item.sellerId?.toString() === userId
+        )
+      : [];
+
+    console.log("🏪 SELLER ITEMS CHECK");
+    console.log("Seller Items Found:", sellerItems.length);
+
+    /* =========================================
        ADMIN
-    ===================================================== */
+       Admin can see the complete order.
+    ========================================= */
 
     if (role === "admin") {
+      console.log("✅ ADMIN ACCESS GRANTED");
+
       return res.status(200).json({
         success: true,
-
         order,
       });
     }
 
-    /* =====================================================
+    /* =========================================
        CUSTOMER
-    ===================================================== */
+       Anyone who actually placed this order
+       can see the complete order.
 
-    if (role === "user" && order.userId?._id?.toString() === userId) {
-      return res.status(200).json({
-        success: true,
+       IMPORTANT:
+       This check happens regardless of role.
 
-        order,
-      });
-    }
+       So a seller who buys something as a
+       customer can still see their own order.
+    ========================================= */
 
-    /* =====================================================
-       SELLER
-    ===================================================== */
+    const isOrderCustomer =
+      orderOwnerId === userId;
 
-    if (role === "seller") {
-      const sellerItems = order.items.filter(
-        (item) => item.sellerId?.toString() === userId,
+    console.log("👤 CUSTOMER CHECK");
+    console.log("Is Order Customer:", isOrderCustomer);
+
+    if (isOrderCustomer) {
+      console.log(
+        "✅ CUSTOMER ACCESS GRANTED"
       );
 
-      if (sellerItems.length === 0) {
-        return res.status(403).json({
-          success: false,
+      return res.status(200).json({
+        success: true,
+        order,
+      });
+    }
 
-          message: "Access denied",
-        });
-      }
+    /* =========================================
+       SELLER
+       Seller can only see the items belonging
+       to that seller.
 
+       This prevents Seller A from seeing
+       Seller B's products.
+    ========================================= */
+
+    const isOrderSeller =
+      sellerItems.length > 0;
+
+    console.log("🏪 SELLER CHECK");
+    console.log("Is Order Seller:", isOrderSeller);
+
+    if (isOrderSeller) {
       const sellerTotal = sellerItems.reduce(
         (total, item) =>
-          total + Number(item.price || 0) * Number(item.quantity || 0),
-        0,
+          total +
+          Number(item.price || 0) *
+            Number(item.quantity || 0),
+        0
       );
 
       const sellerOrder = {
         ...order.toObject(),
 
+        // Only this seller's products
         items: sellerItems,
 
+        // Seller-specific total
         sellerTotal: money(sellerTotal),
       };
 
+      console.log(
+        "💰 Seller Total:",
+        money(sellerTotal)
+      );
+
+      console.log(
+        "✅ SELLER ACCESS GRANTED"
+      );
+
       return res.status(200).json({
         success: true,
-
         order: sellerOrder,
       });
     }
 
+    /* =========================================
+       ACCESS DENIED
+    ========================================= */
+
+    console.log(
+      "❌ FINAL ACCESS DENIED"
+    );
+
     return res.status(403).json({
       success: false,
-
       message: "Access denied",
     });
+
   } catch (error) {
+    console.error(
+      "❌ GET SINGLE ORDER ERROR:",
+      error
+    );
+
     return res.status(500).json({
       success: false,
-
       message: error.message,
     });
   }
 };
+
 
 /* =========================================================
    TRACK ORDER
@@ -1942,6 +2055,74 @@ border-radius:8px;
         sellerUsers
           .filter((seller) => seller.email)
           .map(async (seller) => {
+            if (role === "seller") {
+
+  console.log("\n========== SELLER ORDER DEBUG ==========");
+
+  console.log("Seller ID:", userId);
+
+  console.log(
+    "Total order items:",
+    order.items?.length
+  );
+
+  console.log(
+    "Order items:",
+    order.items?.map((item) => ({
+      productId: item.productId?._id?.toString?.() ||
+                 item.productId?.toString?.(),
+
+      sellerId: item.sellerId?.toString?.(),
+
+      title: item.title,
+
+      quantity: item.quantity,
+    }))
+  );
+
+  console.log("========================================");
+
+  const sellerItems = order.items.filter(
+    (item) =>
+      item.sellerId?.toString() === userId
+  );
+
+  console.log(
+    "Seller Items Found:",
+    sellerItems.length
+  );
+
+  if (sellerItems.length === 0) {
+
+    console.log("❌ NO SELLER ITEMS MATCHED");
+
+    return res.status(403).json({
+      success: false,
+      message: "Access denied",
+    });
+  }
+
+  const sellerTotal = sellerItems.reduce(
+    (total, item) =>
+      total +
+      Number(item.price || 0) *
+      Number(item.quantity || 0),
+    0
+  );
+
+  const sellerOrder = {
+    ...order.toObject(),
+    items: sellerItems,
+    sellerTotal: money(sellerTotal),
+  };
+
+  console.log("✅ SELLER ACCESS GRANTED");
+
+  return res.status(200).json({
+    success: true,
+    order: sellerOrder,
+  });
+}
             const sellerItems = order.items.filter(
               (item) => getSellerIdFromItem(item) === seller._id.toString(),
             );
