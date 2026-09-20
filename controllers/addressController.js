@@ -19,7 +19,7 @@ const isValidPin = (postalCode) => {
  */
 const isValidPhone = (phone) => {
   return /^[6-9][0-9]{9}$/.test(
-    clean(phone).replace(/\D/g, ""),
+    clean(phone).replace(/\D/g, "")
   );
 };
 
@@ -49,14 +49,10 @@ const cleanLocation = (location) => {
       : null;
 
   return {
-    latitude:
-      Number.isFinite(latitude) ? latitude : null,
-
-    longitude:
-      Number.isFinite(longitude) ? longitude : null,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
   };
 };
-
 
 /**
  * Add a new address
@@ -67,51 +63,35 @@ export const addAddress = async (req, res) => {
       label,
       fullName,
       phone,
+      email,
       alternatePhone,
 
-      // Physical address
       houseNumber,
-      buildingName,
-      floor,
       street,
-      addressLine1,
-      addressLine2,
-      landmark,
       area,
-      village,
+      landmark,
 
-      // Postal information
-      postOffice,
-      block,
       city,
       district,
       state,
       postalCode,
       country,
+      postOffice,
 
-      // Delivery
       deliveryInstructions,
 
-      // GPS
       location,
-
-      // Settings
       isDefault,
     } = req.body;
 
-
-    // ============================================================
-    // REQUIRED FIELD VALIDATION
-    // ============================================================
-
+    // Required fields
     if (
       !fullName ||
+      !email ||
       !phone ||
       !houseNumber ||
       !street ||
-      !addressLine1 ||
       !area ||
-      !postOffice ||
       !city ||
       !district ||
       !state ||
@@ -119,35 +99,25 @@ export const addAddress = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please fill all required address fields",
+        message: "Please fill all required address fields",
       });
     }
 
-
-    // ============================================================
-    // PHONE VALIDATION
-    // ============================================================
-
-    const cleanPhone = clean(phone)
-      .replace(/\D/g, "");
+    // Phone validation
+    const cleanPhone = clean(phone).replace(/\D/g, "");
 
     if (!isValidPhone(cleanPhone)) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please enter a valid 10-digit phone number",
+        message: "Please enter a valid 10-digit phone number",
       });
     }
 
-
-    // ============================================================
-    // ALTERNATE PHONE VALIDATION
-    // ============================================================
-
-    const cleanAlternatePhone = clean(
-      alternatePhone,
-    ).replace(/\D/g, "");
+    // Alternate phone validation
+    const cleanAlternatePhone = clean(alternatePhone).replace(
+      /\D/g,
+      ""
+    );
 
     if (
       cleanAlternatePhone &&
@@ -155,31 +125,21 @@ export const addAddress = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please enter a valid alternate phone number",
+        message: "Please enter a valid alternate phone number",
       });
     }
 
-
-    // ============================================================
-    // PIN CODE VALIDATION
-    // ============================================================
-
+    // PIN validation
     const cleanPostalCode = clean(postalCode);
 
     if (!isValidPin(cleanPostalCode)) {
       return res.status(400).json({
         success: false,
-        message:
-          "Invalid 6-digit PIN code",
+        message: "Invalid 6-digit PIN code",
       });
     }
 
-
-    // ============================================================
-    // DEFAULT ADDRESS
-    // ============================================================
-
+    // If this is default, remove default from other addresses
     if (isDefault === true) {
       await Address.updateMany(
         {
@@ -190,235 +150,140 @@ export const addAddress = async (req, res) => {
           $set: {
             isDefault: false,
           },
-        },
+        }
       );
     }
 
-
-    // ============================================================
-    // CREATE ADDRESS
-    // ============================================================
-
+    // Create address
     const address = await Address.create({
       userId: req.user._id,
 
-      label:
-        label || "Home",
-
       // Contact
-      fullName:
-        clean(fullName),
+      fullName: clean(fullName),
+      phone: cleanPhone,
+      email: clean(email).toLowerCase(),
+      alternatePhone: cleanAlternatePhone,
 
-      phone:
-        cleanPhone,
+      // Address
+      houseNumber: clean(houseNumber),
+      street: clean(street),
+      area: clean(area),
+      landmark: clean(landmark),
 
-      alternatePhone:
-        cleanAlternatePhone,
-
-      // Physical address
-      houseNumber:
-        clean(houseNumber),
-
-      buildingName:
-        clean(buildingName),
-
-      floor:
-        clean(floor),
-
-      street:
-        clean(street),
-
-      // Keep existing fields
-      addressLine1:
-        clean(addressLine1),
-
-      addressLine2:
-        clean(addressLine2),
-
-      landmark:
-        clean(landmark),
-
-      area:
-        clean(area),
-
-      village:
-        clean(village),
-
-      // Postal information
-      postOffice:
-        clean(postOffice),
-
-      block:
-        clean(block),
-
-      city:
-        clean(city),
-
-      district:
-        clean(district),
-
-      state:
-        clean(state),
-
-      postalCode:
-        cleanPostalCode,
-
-      country:
-        clean(country, "India"),
+      // Location
+      city: clean(city),
+      district: clean(district),
+      state: clean(state),
+      postalCode: cleanPostalCode,
+      country: clean(country, "India"),
+      postOffice: clean(postOffice),
 
       // Delivery
-      deliveryInstructions:
-        clean(deliveryInstructions),
-
-      // GPS
-      location:
-        cleanLocation(location),
+      deliveryInstructions: clean(deliveryInstructions),
 
       // Settings
-      isDefault:
-        Boolean(isDefault),
-    });
+      label: label || "Home",
+      isDefault: Boolean(isDefault),
 
+      // GPS
+      location: cleanLocation(location),
+    });
 
     return res.status(201).json({
       success: true,
-      message:
-        "Address added successfully",
+      message: "Address added successfully",
       address,
     });
-
   } catch (error) {
-    console.error(
-      "Add Address Error:",
-      error,
-    );
+    console.error("Add Address Error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to add address",
+      message: "Failed to add address",
     });
   }
 };
 
-
 /**
  * Get all addresses of logged-in user
  */
-export const getMyAddresses = async (
-  req,
-  res,
-) => {
+export const getMyAddresses = async (req, res) => {
   try {
-    const addresses =
-      await Address.find({
-        userId: req.user._id,
-        isDeleted: false,
-      }).sort({
-        isDefault: -1,
-        createdAt: -1,
-      });
+    const addresses = await Address.find({
+      userId: req.user._id,
+      isDeleted: false,
+    }).sort({
+      isDefault: -1,
+      createdAt: -1,
+    });
 
     return res.status(200).json({
       success: true,
       addresses,
     });
-
   } catch (error) {
-    console.error(
-      "Get Addresses Error:",
-      error,
-    );
+    console.error("Get Addresses Error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to fetch addresses",
+      message: "Failed to fetch addresses",
     });
   }
 };
 
-
 /**
  * Update an existing address
  */
-export const updateAddress = async (
-  req,
-  res,
-) => {
+export const updateAddress = async (req, res) => {
   try {
     const { id } = req.params;
 
-
-    // ============================================================
-    // FIND USER ADDRESS
-    // ============================================================
-
-    const address =
-      await Address.findOne({
-        _id: id,
-        userId: req.user._id,
-        isDeleted: false,
-      });
+    const address = await Address.findOne({
+      _id: id,
+      userId: req.user._id,
+      isDeleted: false,
+    });
 
     if (!address) {
       return res.status(404).json({
         success: false,
-        message:
-          "Address not found",
+        message: "Address not found",
       });
     }
-
 
     const {
       label,
       fullName,
       phone,
+      email,
       alternatePhone,
 
-      // Physical address
       houseNumber,
-      buildingName,
-      floor,
       street,
-      addressLine1,
-      addressLine2,
-      landmark,
       area,
-      village,
+      landmark,
 
-      // Postal
-      postOffice,
-      block,
       city,
       district,
       state,
       postalCode,
       country,
+      postOffice,
 
-      // Delivery
       deliveryInstructions,
 
-      // GPS
       location,
-
-      // Settings
       isDefault,
     } = req.body;
 
-
-    // ============================================================
-    // REQUIRED FIELD VALIDATION
-    // ============================================================
-
+    // Required fields
     if (
       !fullName ||
+      !email ||
       !phone ||
       !houseNumber ||
       !street ||
-      !addressLine1 ||
       !area ||
-      !postOffice ||
       !city ||
       !district ||
       !state ||
@@ -426,35 +291,25 @@ export const updateAddress = async (
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please fill all required address fields",
+        message: "Please fill all required address fields",
       });
     }
 
-
-    // ============================================================
-    // PHONE
-    // ============================================================
-
-    const cleanPhone = clean(phone)
-      .replace(/\D/g, "");
+    // Phone validation
+    const cleanPhone = clean(phone).replace(/\D/g, "");
 
     if (!isValidPhone(cleanPhone)) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please enter a valid 10-digit phone number",
+        message: "Please enter a valid 10-digit phone number",
       });
     }
 
-
-    // ============================================================
-    // ALTERNATE PHONE
-    // ============================================================
-
-    const cleanAlternatePhone = clean(
-      alternatePhone,
-    ).replace(/\D/g, "");
+    // Alternate phone validation
+    const cleanAlternatePhone = clean(alternatePhone).replace(
+      /\D/g,
+      ""
+    );
 
     if (
       cleanAlternatePhone &&
@@ -462,31 +317,21 @@ export const updateAddress = async (
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please enter a valid alternate phone number",
+        message: "Please enter a valid alternate phone number",
       });
     }
 
-
-    // ============================================================
-    // PIN
-    // ============================================================
-
+    // PIN validation
     const cleanPostalCode = clean(postalCode);
 
     if (!isValidPin(cleanPostalCode)) {
       return res.status(400).json({
         success: false,
-        message:
-          "Invalid 6-digit PIN code",
+        message: "Invalid 6-digit PIN code",
       });
     }
 
-
-    // ============================================================
-    // DEFAULT ADDRESS
-    // ============================================================
-
+    // If this is default, remove default from other addresses
     if (isDefault === true) {
       await Address.updateMany(
         {
@@ -500,226 +345,126 @@ export const updateAddress = async (
           $set: {
             isDefault: false,
           },
-        },
+        }
       );
     }
 
+    // Update contact
+    address.fullName = clean(fullName);
+    address.phone = cleanPhone;
+    address.email = clean(email).toLowerCase();
+    address.alternatePhone = cleanAlternatePhone;
 
-    // ============================================================
-    // UPDATE CONTACT
-    // ============================================================
+    // Update address
+    address.houseNumber = clean(houseNumber);
+    address.street = clean(street);
+    address.area = clean(area);
+    address.landmark = clean(landmark);
 
-    address.label =
-      label || "Home";
+    // Update location
+    address.city = clean(city);
+    address.district = clean(district);
+    address.state = clean(state);
+    address.postalCode = cleanPostalCode;
+    address.country = clean(country, "India");
+    address.postOffice = clean(postOffice);
 
-    address.fullName =
-      clean(fullName);
+    // Delivery
+    address.deliveryInstructions = clean(
+      deliveryInstructions
+    );
 
-    address.phone =
-      cleanPhone;
+    // Settings
+    address.label = label || "Home";
+    address.isDefault = Boolean(isDefault);
 
-    address.alternatePhone =
-      cleanAlternatePhone;
-
-
-    // ============================================================
-    // UPDATE PHYSICAL ADDRESS
-    // ============================================================
-
-    address.houseNumber =
-      clean(houseNumber);
-
-    address.buildingName =
-      clean(buildingName);
-
-    address.floor =
-      clean(floor);
-
-    address.street =
-      clean(street);
-
-    address.addressLine1 =
-      clean(addressLine1);
-
-    address.addressLine2 =
-      clean(addressLine2);
-
-    address.landmark =
-      clean(landmark);
-
-    address.area =
-      clean(area);
-
-    address.village =
-      clean(village);
-
-
-    // ============================================================
-    // UPDATE POSTAL INFORMATION
-    // ============================================================
-
-    address.postOffice =
-      clean(postOffice);
-
-    address.block =
-      clean(block);
-
-    address.city =
-      clean(city);
-
-    address.district =
-      clean(district);
-
-    address.state =
-      clean(state);
-
-    address.postalCode =
-      cleanPostalCode;
-
-    address.country =
-      clean(country, "India");
-
-
-    // ============================================================
-    // DELIVERY INSTRUCTIONS
-    // ============================================================
-
-    address.deliveryInstructions =
-      clean(deliveryInstructions);
-
-
-    // ============================================================
     // GPS
-    // ============================================================
-
-    address.location =
-      cleanLocation(location);
-
-
-    // ============================================================
-    // DEFAULT
-    // ============================================================
-
-    address.isDefault =
-      Boolean(isDefault);
-
+    address.location = cleanLocation(location);
 
     await address.save();
 
-
     return res.status(200).json({
       success: true,
-      message:
-        "Address updated successfully",
+      message: "Address updated successfully",
       address,
     });
-
   } catch (error) {
-    console.error(
-      "Update Address Error:",
-      error,
-    );
+    console.error("Update Address Error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to update address",
+      message: "Failed to update address",
     });
   }
 };
 
-
 /**
  * Delete an address
- *
- * Soft delete is used.
  */
-export const deleteAddress = async (
-  req,
-  res,
-) => {
+export const deleteAddress = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const address =
-      await Address.findOne({
-        _id: id,
-        userId: req.user._id,
-        isDeleted: false,
-      });
+    const address = await Address.findOne({
+      _id: id,
+      userId: req.user._id,
+      isDeleted: false,
+    });
 
     if (!address) {
       return res.status(404).json({
         success: false,
-        message:
-          "Address not found",
+        message: "Address not found",
       });
     }
 
-
-    // Soft delete
     address.isDeleted = true;
-
-    // Deleted address cannot remain default
     address.isDefault = false;
 
     await address.save();
 
-
     return res.status(200).json({
       success: true,
-      message:
-        "Address deleted successfully",
+      message: "Address deleted successfully",
     });
-
   } catch (error) {
-    console.error(
-      "Delete Address Error:",
-      error,
-    );
+    console.error("Delete Address Error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to delete address",
+      message: "Failed to delete address",
     });
   }
 };
 
-
 /**
  * Get user addresses for admin
  */
-export const getUserAddressesForAdmin =
-  async (req, res) => {
-    try {
-      const { userId } =
-        req.params;
+export const getUserAddressesForAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
 
-      const addresses =
-        await Address.find({
-          userId,
-          isDeleted: false,
-        }).sort({
-          isDefault: -1,
-          createdAt: -1,
-        });
+    const addresses = await Address.find({
+      userId,
+      isDeleted: false,
+    }).sort({
+      isDefault: -1,
+      createdAt: -1,
+    });
 
-      return res.status(200).json({
-        success: true,
-        addresses,
-      });
+    return res.status(200).json({
+      success: true,
+      addresses,
+    });
+  } catch (error) {
+    console.error(
+      "Admin Get User Addresses Error:",
+      error
+    );
 
-    } catch (error) {
-      console.error(
-        "Admin Get User Addresses Error:",
-        error,
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Failed to fetch user addresses",
-      });
-    }
-  };
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch user addresses",
+    });
+  }
+};
