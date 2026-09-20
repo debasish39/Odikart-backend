@@ -259,14 +259,39 @@ export const getAvailableCoupons = async (req, res) => {
   try {
     const now = new Date();
 
-    const coupons = await Coupon.find({
+    // Get the currently authenticated user.
+    const userId =
+      req.user?._id ||
+      req.user?.id ||
+      req.userId ||
+      null;
+
+    const query = {
       isActive: true,
+
       $or: [
         { expiryDate: { $exists: false } },
         { expiryDate: null },
         { expiryDate: { $gt: now } },
       ],
-    })
+    };
+
+    /*
+     * IMPORTANT
+     *
+     * If a user is logged in, don't return coupons
+     * that already contain this user's ID in usedBy.
+     *
+     * This keeps used coupons completely hidden
+     * from the customer.
+     */
+    if (userId) {
+      query.usedBy = {
+        $nin: [userId],
+      };
+    }
+
+    const coupons = await Coupon.find(query)
       .select(
         "code discountType discountValue minOrderAmount maxDiscount expiryDate isActive"
       )
