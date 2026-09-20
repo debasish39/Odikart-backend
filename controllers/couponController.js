@@ -255,7 +255,38 @@ const validateCouponPayload = (
 
   return null;
 };
+export const getAvailableCoupons = async (req, res) => {
+  try {
+    const now = new Date();
 
+    const coupons = await Coupon.find({
+      isActive: true,
+      $or: [
+        { expiryDate: { $exists: false } },
+        { expiryDate: null },
+        { expiryDate: { $gt: now } },
+      ],
+    })
+      .select(
+        "code discountType discountValue minOrderAmount maxDiscount expiryDate isActive"
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      count: coupons.length,
+      coupons,
+    });
+  } catch (error) {
+    console.error("GET AVAILABLE COUPONS ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch available coupons",
+    });
+  }
+};
 /* =========================================================
    CREATE COUPON
    ADMIN ONLY

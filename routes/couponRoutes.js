@@ -1,19 +1,13 @@
 import express from "express";
 
 import {
-
   createCoupon,
-
   getCoupons,
-
   getCouponById,
-
   updateCoupon,
-
   deleteCoupon,
-
   applyCoupon,
-
+  getAvailableCoupons,
 } from "../controllers/couponController.js";
 
 import {
@@ -42,6 +36,26 @@ router.get(
   getCoupons
 );
 
+/* ==============================
+   USER
+============================== */
+
+router.get(
+  "/available",
+  authMiddleware,
+  getAvailableCoupons
+);
+
+router.post(
+  "/apply",
+  authMiddleware,
+  applyCoupon
+);
+
+/* ==============================
+   ADMIN - SINGLE COUPON
+============================== */
+
 router.get(
   "/:id",
   authMiddleware,
@@ -61,16 +75,6 @@ router.delete(
   authMiddleware,
   authorizeRoles("admin"),
   deleteCoupon
-);
-
-/* ==============================
-   USER
-============================== */
-
-router.post(
-  "/apply",
-  authMiddleware,
-  applyCoupon
 );
 
 export default router;
