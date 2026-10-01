@@ -5763,6 +5763,133 @@ export const blockProduct = async (req, res) => {
   }
 };
 /* =====================================
+   UNBLOCK PRODUCT
+===================================== */
+
+export const unblockProduct = async (req, res) => {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+
+  try {
+    const adminId = req.user.id;
+    const { id } = req.params;
+
+    /* =====================================
+       VALIDATE PRODUCT ID
+    ===================================== */
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    /* =====================================
+       FIND PRODUCT
+    ===================================== */
+
+    const product = await Product.findOne({
+      _id: id,
+      isDeleted: false,
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    /* =====================================
+       CHECK CURRENT STATUS
+    ===================================== */
+
+    if (product.status !== "blocked") {
+      return res.status(400).json({
+        success: false,
+        message: "Product is not blocked",
+      });
+    }
+
+    /* =====================================
+       UNBLOCK PRODUCT
+    ===================================== */
+
+    product.status = "approved";
+
+    product.isActive = true;
+
+    product.isDeleted = false;
+
+    /*
+     * Clear the old block reason.
+     */
+    product.rejectionReason = "";
+
+    /* =====================================
+       APPROVAL HISTORY
+    ===================================== */
+
+    product.approvalHistory.push({
+      action: "unblocked",
+      reason: "Product unblocked by admin",
+      performedBy: adminId,
+    });
+
+    /* =====================================
+       SAVE
+    ===================================== */
+
+    await product.save();
+
+    console.log(
+      "======================================"
+    );
+
+    console.log("✅ PRODUCT UNBLOCKED");
+
+    console.log(
+      "Product ID:",
+      product._id
+    );
+
+    console.log(
+      "Status:",
+      product.status
+    );
+
+    console.log(
+      "isActive:",
+      product.isActive
+    );
+
+    console.log(
+      "======================================"
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Product unblocked successfully",
+      product,
+    });
+
+  } catch (error) {
+    console.error(
+      "❌ Unblock Product Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "An unexpected error occurred",
+    });
+  }
+};
+/* =====================================
    RESET RECENT PRODUCT ANALYTICS
 ===================================== */
 

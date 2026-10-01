@@ -17,7 +17,7 @@ import {
   approveProduct,
   rejectProduct,
   blockProduct,
-
+  unblockProduct,
   /* =====================================
      ECOMMERCE DISCOVERY
   ===================================== */
@@ -430,7 +430,12 @@ router.put(
   blockProduct
 );
 
-
+router.put(
+  "/admin/:id/unblock",
+  authMiddleware,
+  authorizeRoles("admin"),
+  unblockProduct
+);
 /* =====================================================
    UPDATE VARIANT STOCK
 ===================================================== */

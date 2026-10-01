@@ -212,35 +212,35 @@ const productSchema = new mongoose.Schema(
       default: "draft",
     },
 
-    approvalHistory: [
-      {
-        action: {
-          type: String,
-          enum: [
-            "submitted",
-            "approved",
-            "rejected",
-            "suspended",
-            "reactivated",
-          ],
-        },
+  approvalHistory: [
+  {
+    action: {
+      type: String,
+      enum: [
+        "submitted",
+        "approved",
+        "rejected",
+        "blocked",
+        "unblocked",
+      ],
+    },
 
-        reason: {
-          type: String,
-          default: "",
-        },
+    reason: {
+      type: String,
+      default: "",
+    },
 
-        performedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-        },
+    performedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
 
-        date: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
+    date: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+],
 
     rejectionReason: {
       type: String,
@@ -728,34 +728,6 @@ shipping: {
         default: null,
       },
     },
-
-    /* =====================================
-       APPROVAL HISTORY
-    ===================================== */
-
-    approvalHistory: [
-      {
-        action: {
-          type: String,
-          enum: ["submitted", "approved", "rejected", "blocked"],
-        },
-
-        reason: {
-          type: String,
-          default: "",
-        },
-
-        performedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-        },
-
-        date: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
 
     /* =====================================
        INVENTORY HISTORY
