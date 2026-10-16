@@ -57,37 +57,28 @@ import sellerVerificationMiddleware from "../middleware/sellerVerificationMiddle
 
 const router = express.Router();
 
-/* =====================================================
-   CREATE PRODUCT
-   SELLER MUST BE VERIFIED
-===================================================== */
-
 router.post(
   "/create",
-
   authMiddleware,
+  authorizeRoles("seller", "admin"),
 
-  authorizeRoles(
-    "seller",
-    "admin"
-  ),
+  // Admin bypasses seller verification.
+  // Sellers must still be verified.
+  (req, res, next) => {
+    if (req.user?.role === "admin") {
+      return next();
+    }
 
-  sellerVerificationMiddleware,
+    return sellerVerificationMiddleware(req, res, next);
+  },
 
   upload.fields([
-    {
-      name: "images",
-      maxCount: 10,
-    },
-    {
-      name: "videos",
-      maxCount: 5,
-    },
+    { name: "images", maxCount: 10 },
+    { name: "videos", maxCount: 5 },
   ]),
 
   createProduct
 );
-
 
 /* =====================================================
    ECOMMERCE DISCOVERY

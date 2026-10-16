@@ -2282,126 +2282,82 @@ export const createProduct = async (req, res) => {
     );
 
 
-    const roleApproved =
-      seller.role === "seller";
+    const isAdmin = seller.role === "admin";
+    const isSeller = seller.role === "seller";
 
     const sellerApproved =
-      seller.sellerStatus ===
-      "approved";
+      seller.sellerStatus === "approved";
 
     const kycApproved =
-      seller.sellerInfo
-        ?.verification
-        ?.status ===
-      "approved";
+      seller.sellerInfo?.verification?.status === "approved";
 
+    console.log("Is admin:", isAdmin);
+    console.log("Is seller:", isSeller);
+    console.log("Seller approved:", sellerApproved);
+    console.log("KYC approved:", kycApproved);
 
-    console.log(
-      "Role approved:",
-      roleApproved
-    );
-
-    console.log(
-      "Seller approved:",
-      sellerApproved
-    );
-
-    console.log(
-      "KYC approved:",
-      kycApproved
-    );
-
-
-    if (!roleApproved) {
-
-      console.error(
-        "❌ ROLE CHECK FAILED"
-      );
+    if (!isAdmin && !isSeller) {
+      console.error("❌ ROLE CHECK FAILED");
 
       return res.status(403).json({
         success: false,
-        message:
-          "Only sellers can create products",
+        message: "Only admins or sellers can create products",
         debug: {
           requestId,
-          role:
-            seller.role || null,
+          role: seller.role || null,
         },
       });
-
     }
 
-
-    if (
-      seller.isBlocked ||
-      seller.isDeleted
-    ) {
-
-      console.error(
-        "❌ ACCOUNT STATUS CHECK FAILED"
-      );
+    // A blocked/deleted account must never create products,
+    // including an account with an admin role.
+    if (seller.isBlocked || seller.isDeleted) {
+      console.error("❌ ACCOUNT STATUS CHECK FAILED");
 
       return res.status(403).json({
         success: false,
-        message:
-          "Seller account is not active",
+        message: "Account is not active",
         debug: {
           requestId,
-          isBlocked:
-            seller.isBlocked,
-          isDeleted:
-            seller.isDeleted,
+          isBlocked: seller.isBlocked,
+          isDeleted: seller.isDeleted,
         },
       });
-
     }
 
-
-    if (!sellerApproved) {
-
-      console.error(
-        "❌ SELLER APPROVAL FAILED"
-      );
+    // Seller approval and KYC checks apply only to sellers.
+    // Admin-created catalogue products are approved directly below.
+    if (isSeller && !sellerApproved) {
+      console.error("❌ SELLER APPROVAL FAILED");
 
       return res.status(403).json({
         success: false,
-        message:
-          "Seller account is not approved",
+        message: "Seller account is not approved",
         debug: {
           requestId,
-          sellerStatus:
-            seller.sellerStatus,
+          sellerStatus: seller.sellerStatus,
         },
       });
-
     }
 
-
-    if (!kycApproved) {
-
-      console.error(
-        "❌ KYC APPROVAL FAILED"
-      );
+    if (isSeller && !kycApproved) {
+      console.error("❌ KYC APPROVAL FAILED");
 
       return res.status(403).json({
         success: false,
-        message:
-          "Seller KYC verification is not approved",
+        message: "Seller KYC verification is not approved",
         debug: {
           requestId,
           verificationStatus:
-            seller.sellerInfo
-              ?.verification
-              ?.status ||
-            "pending",
+            seller.sellerInfo?.verification?.status || "pending",
         },
       });
-
     }
 
-
     console.log(
-      "✅ SELLER AUTHORIZATION PASSED"
+      isAdmin
+        ? "✅ ADMIN AUTHORIZATION PASSED"
+        : "✅ VERIFIED SELLER AUTHORIZATION PASSED"
     );
 
 
@@ -3099,23 +3055,33 @@ export const createProduct = async (req, res) => {
       offer,
 
 
+      // Admin-created products are approved and activated immediately.
+      // Seller-created products remain pending for admin review.
       status:
-        "pending",
+        isAdmin ? "approved" : "pending",
 
+      isActive:
+        isAdmin,
+
+      isDeleted:
+        false,
+
+      ...(isAdmin
+        ? {
+            approvedAt: new Date(),
+            approvedBy: sellerId,
+            rejectionReason: "",
+          }
+        : {}),
 
       approvalHistory: [
-
         {
-          action:
-            "submitted",
-
-          reason:
-            "Product submitted for approval",
-
-          performedBy:
-            sellerId,
+          action: isAdmin ? "approved" : "submitted",
+          reason: isAdmin
+            ? "Product created and approved by admin"
+            : "Product submitted for approval",
+          performedBy: sellerId,
         },
-
       ],
 
     };
@@ -3320,8 +3286,9 @@ export const createProduct = async (req, res) => {
       success:
         true,
 
-      message:
-        "Product created and submitted for approval",
+      message: isAdmin
+        ? "Product created and published by admin"
+        : "Product created and submitted for approval",
 
       product,
 
