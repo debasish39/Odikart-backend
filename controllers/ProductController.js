@@ -958,8 +958,8 @@ const applyOfferToVariants = (
 
         const originalPrice =
           Number(
-            variant.originalPrice ||
-            variant.price ||
+            variant.originalPrice ??
+            variant.price ??
             0
           );
 
@@ -1008,8 +1008,8 @@ const applyOfferToVariants = (
 
         const originalPrice =
           Number(
-            variant.originalPrice ||
-            variant.price ||
+            variant.originalPrice ??
+            variant.price ??
             0
           );
 
@@ -1044,8 +1044,8 @@ const applyOfferToVariants = (
       (variant) => {
         const originalPrice =
           Number(
-            variant.originalPrice ||
-            variant.price ||
+            variant.originalPrice ??
+            variant.price ??
             0
           );
 
@@ -4224,6 +4224,16 @@ export const updateProduct = async (req, res) => {
        UPDATE DATA
     ===================================================== */
 
+    // Keep a snapshot so we can distinguish a changed regular price from
+    // a stale price field sent by older versions of the admin editor.
+    const previousVariants = Array.isArray(product.variants)
+      ? product.variants.map((variant) =>
+          typeof variant?.toObject === "function"
+            ? variant.toObject()
+            : { ...variant }
+        )
+      : [];
+
     const allowedFields = [
       "title",
       "description",
@@ -4270,14 +4280,101 @@ export const updateProduct = async (req, res) => {
 
 
     /* =====================================================
-       APPLY OFFER
+       NORMALIZE REGULAR PRICE BEFORE APPLYING OFFERS
+       -----------------------------------------------------
+       With no offer, regular price and selling price must
+       be identical. Support both the current admin editor
+       (which updates both fields) and older clients that
+       may update only one of the two fields.
+
+       With an offer enabled, originalPrice remains the
+       regular/base price and applyOfferToVariants computes
+       the discounted selling price.
     ===================================================== */
 
-    product.variants =
-      applyOfferToVariants(
-        product.variants,
-        product.offer
-      );
+    if (
+      Array.isArray(req.body.variants) &&
+      Array.isArray(product.variants) &&
+      product.offer?.enabled !== true
+    ) {
+      product.variants = product.variants.map((variant) => {
+        const currentVariant =
+          typeof variant?.toObject === "function"
+            ? variant.toObject()
+            : { ...variant };
+
+        const incomingVariant = req.body.variants.find(
+          (item) =>
+            String(item?.sku || "").trim().toUpperCase() ===
+            String(currentVariant?.sku || "").trim().toUpperCase()
+        );
+
+        const previousVariant = previousVariants.find(
+          (item) =>
+            String(item?.sku || "").trim().toUpperCase() ===
+            String(currentVariant?.sku || "").trim().toUpperCase()
+        );
+
+        const incomingPrice = Number(incomingVariant?.price);
+        const incomingOriginalPrice = Number(incomingVariant?.originalPrice);
+        const oldPrice = Number(previousVariant?.price);
+        const oldOriginalPrice = Number(previousVariant?.originalPrice);
+
+        const priceProvided =
+          incomingVariant?.price !== undefined &&
+          Number.isFinite(incomingPrice);
+        const originalPriceProvided =
+          incomingVariant?.originalPrice !== undefined &&
+          Number.isFinite(incomingOriginalPrice);
+
+        let regularPrice;
+
+        if (previousVariant && priceProvided && originalPriceProvided) {
+          const priceChanged = incomingPrice !== oldPrice;
+          const originalPriceChanged = incomingOriginalPrice !== oldOriginalPrice;
+
+          if (originalPriceChanged && !priceChanged) {
+            regularPrice = incomingOriginalPrice;
+          } else if (priceChanged && !originalPriceChanged) {
+            // Compatibility with the old editor's editable Selling Price field.
+            regularPrice = incomingPrice;
+          } else if (originalPriceChanged && priceChanged) {
+            // Current editor sends both fields in sync for regular-price edits.
+            regularPrice = incomingOriginalPrice;
+          } else {
+            regularPrice = incomingOriginalPrice;
+          }
+        } else if (originalPriceProvided) {
+          regularPrice = incomingOriginalPrice;
+        } else if (priceProvided) {
+          regularPrice = incomingPrice;
+        } else {
+          regularPrice = Number(currentVariant.originalPrice ?? currentVariant.price ?? 0);
+        }
+
+        if (!Number.isFinite(regularPrice) || regularPrice < 0) {
+          regularPrice = 0;
+        }
+
+        return {
+          ...currentVariant,
+          originalPrice: regularPrice,
+          price: regularPrice,
+        };
+      });
+    }
+
+    /* =====================================================
+       APPLY OFFER
+       -----------------------------------------------------
+       This remains the single place where discounted prices
+       are calculated, preserving percentage and fixed offers.
+    ===================================================== */
+
+    product.variants = applyOfferToVariants(
+      product.variants,
+      product.offer
+    );
 
 
     /* =====================================================
