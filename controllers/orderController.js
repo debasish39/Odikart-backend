@@ -3088,7 +3088,7 @@ export const assignCourier = async (req, res) => {
     console.log("📝 ABOUT TO SAVE ORDER", {
       orderId: order._id?.toString(),
       oldStatus: order.status,
-      newStatus: status,
+      newStatus: order.status,
     });
     await order.save();
 
