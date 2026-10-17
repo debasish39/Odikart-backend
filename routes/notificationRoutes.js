@@ -8,13 +8,25 @@ import {
   deleteNotification,
   updateNotificationSettings,
   sendNotificationToUser,
+  registerDevice,
+  unregisterDevice,
 } from "../controllers/notificationController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
+router.post(
+  "/register-device",
+  authMiddleware,
+  registerDevice
+);
 
+router.delete(
+  "/unregister-device",
+  authMiddleware,
+  unregisterDevice
+);
 /* =========================================================
    CUSTOMER
 ========================================================= */

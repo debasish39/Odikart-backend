@@ -1787,14 +1787,14 @@ export const cancelOrder = async (req, res) => {
     ===================================================== */
 
     try {
-      console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
+      // console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
 
-      console.log({
-        orderId: order._id?.toString(),
-        orderNumber: order.orderNumber,
-        orderUserId: order.userId?.toString(),
-        newStatus: status,
-      });
+      // console.log({
+      //   orderId: order._id?.toString(),
+      //   orderNumber: order.orderNumber,
+      //   orderUserId: order.userId?.toString(),
+      //   newStatus: status,
+      // });
       await createOrderNotification({
         userId: order.userId,
         orderId: order._id,
@@ -3103,6 +3103,22 @@ export const assignCourier = async (req, res) => {
     courier.locationUpdatedAt = null;
 
     await courier.save();
+
+/* Notify customer after successful courier assignment */
+try {
+  await createOrderNotification({
+    userId: order.userId,
+    orderId: order._id,
+    title: "Order Shipped 🚚",
+    message: `Your order ${order.orderNumber} has been shipped.`,
+    link: `/orders/${order._id}`,
+  });
+} catch (notificationError) {
+  console.error(
+    "Courier assignment notification failed:",
+    notificationError
+  );
+}
 
     /* =====================================================
        16. RESPONSE

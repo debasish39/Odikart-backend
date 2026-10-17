@@ -2,9 +2,9 @@ import mongoose from "mongoose";
 
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
-
+import DeviceToken from "../models/DeviceToken.js";
 import {
-  createNotification,
+  createAndSendNotification,
 } from "../utils/notificationService.js";
 
 
@@ -501,42 +501,26 @@ export const sendNotificationToUser =
         });
       }
 
-      const notification =
-        await createNotification({
-          userId,
 
-          title:
-            String(title).trim(),
+const notification = await createAndSendNotification({
+  userId,
+  title: String(title).trim(),
+  message: String(message).trim(),
+  type,
+  link,
+  orderId,
+  isPromotional,
+  createdBy: getUserId(req),
+});
 
-          message:
-            String(message).trim(),
+return res.status(201).json({
+  success: true,
+  message: notification
+    ? "Notification sent"
+    : "Notification processed; in-app notification was not created",
+  notification,
+});
 
-          type,
-
-          link,
-
-          orderId,
-
-          isPromotional,
-
-          createdBy:
-            getUserId(req),
-        });
-
-      if (!notification) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "In-app notifications are disabled for this customer",
-        });
-      }
-
-      return res.status(201).json({
-        success: true,
-        message:
-          "Notification sent",
-        notification,
-      });
     } catch (error) {
       console.error(
         "Send Notification Error:",
@@ -550,3 +534,116 @@ export const sendNotificationToUser =
       });
     }
   };
+  /* =========================================================
+   REGISTER ANDROID DEVICE FOR PUSH NOTIFICATIONS
+========================================================= */
+
+export const registerDevice = async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { token, platform = "android" } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (
+      typeof token !== "string" ||
+      !token.trim() ||
+      platform !== "android"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid Android device token is required",
+      });
+    }
+
+    const user = await User.findById(userId)
+      .select("_id role isBlocked isDeleted")
+      .lean();
+
+    if (!user || user.isBlocked || user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: "User account is unavailable",
+      });
+    }
+
+    const device = await DeviceToken.findOneAndUpdate(
+      { token: token.trim() },
+      {
+        $set: {
+          userId,
+          token: token.trim(),
+          platform: "android",
+          lastSeenAt: new Date(),
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Android device registered successfully",
+      deviceId: device._id,
+    });
+  } catch (error) {
+    console.error("Register Android Device Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to register Android device",
+    });
+  }
+};
+
+
+/* =========================================================
+   UNREGISTER ANDROID DEVICE
+========================================================= */
+
+export const unregisterDevice = async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { token } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (typeof token !== "string" || !token.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Device token is required",
+      });
+    }
+
+    await DeviceToken.deleteOne({
+      userId,
+      token: token.trim(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Android device unregistered successfully",
+    });
+  } catch (error) {
+    console.error("Unregister Android Device Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to unregister Android device",
+    });
+  }
+};
