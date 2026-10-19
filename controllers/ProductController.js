@@ -4146,18 +4146,22 @@ for (const wishlist of wishlists) {
   try {
     console.log("🚀 Sending price-drop notification...");
 
-    const notification = await createAndSendNotification({
-      userId: wishlist.userId,
-      type: "price_drop",
-      title: "Price Drop Alert! 🔥",
-      message: `${product.title} is now ₹${newPrice}, down from ₹${previousPrice}. Check it out on Odikart!`,
-      productId: product._id,
-      link: `/product/${product._id}`,
-      isPromotional: true,
-    });
-
-    console.log("Notification result:", notification);
-
+const notification = await createAndSendNotification({
+  userId: wishlist.userId,
+  type: "price_drop",
+  title: "Price Drop Alert! 🔥",
+  message: `${product.title} is now ₹${newPrice}, down from ₹${previousPrice}. Check it out on Odikart!`,
+  productId: product._id,
+  link: `/product/${product._id}`,
+  isPromotional: true,
+});
+onsole.log("🔔 Notification result:", {
+  userId: String(wishlist.userId),
+  notificationCreated: Boolean(notification),
+  notificationId: notification?._id
+    ? String(notification._id)
+    : null,
+});
     // Update the saved price after processing.
     item.price = newPrice;
     item.title = product.title;
