@@ -4115,64 +4115,64 @@ console.log("Product:", product.title);
 console.log("Product ID:", String(product._id));
 console.log("Current selling price:", currentPrice);
 console.log("Matching wishlists:", wishlists.length);
-  for (const wishlist of wishlists) {
-    const item = wishlist.items.find(
-      (entry) =>
-        String(entry.productId) ===
-        String(product._id)
-    );
+ 
+for (const wishlist of wishlists) {
+  const item = wishlist.items.find(
+    (entry) =>
+      String(entry.productId) === String(product._id)
+  );
 
-    if (!item) continue;
+  if (!item) continue;
 
-    const previousPrice = Number(item.price);
-    console.log("Wishlist user:", String(wishlist.userId));
-console.log("Previous wishlist price:", previousPrice);
-console.log("New selling price:", newPrice);
-console.log(
-  "Is price drop:",
-  newPrice < previousPrice
-);
-    const newPrice = Number(currentPrice);
+  // Declare both prices BEFORE logging or comparing.
+  const previousPrice = Number(item.price);
+  const newPrice = Number(currentPrice);
 
-    // Notify only when the current price is lower
-    // than the price saved in this wishlist.
-    if (
-      !Number.isFinite(previousPrice) ||
-      previousPrice < 0 ||
-      newPrice >= previousPrice
-    ) {
-      continue;
-    }
+  console.log("Wishlist user:", String(wishlist.userId));
+  console.log("Previous wishlist price:", previousPrice);
+  console.log("New selling price:", newPrice);
+  console.log("Is price drop:", newPrice < previousPrice);
 
-    try {
-      console.log("🚀 Sending price-drop notification...");
-      await createAndSendNotification({
-        userId: wishlist.userId,
-        type: "price_drop",
-        title: "Price Drop Alert! 🔥",
-        message: `${product.title} is now ₹${newPrice}, down from ₹${previousPrice}. Check it out on Odikart!`,
-        productId: product._id,
-        link: `/product/${product._id}`,
-        isPromotional: true,
-      });
-console.log("✅ Notification service returned:", {
-  userId: String(wishlist.userId),
-  productId: String(product._id),
-});
-      // Update the snapshot only after notification
-      // processing succeeds.
-      item.price = newPrice;
-      item.title = product.title;
-
-      await wishlist.save();
-
-    } catch (error) {
-      console.error(
-        "Wishlist Price Drop Notification Error:",
-        error?.message || error
-      );
-    }
+  if (
+    !Number.isFinite(previousPrice) ||
+    previousPrice < 0 ||
+    !Number.isFinite(newPrice) ||
+    newPrice >= previousPrice
+  ) {
+    console.log("⏭️ No price drop for this wishlist.");
+    continue;
   }
+
+  try {
+    console.log("🚀 Sending price-drop notification...");
+
+    const notification = await createAndSendNotification({
+      userId: wishlist.userId,
+      type: "price_drop",
+      title: "Price Drop Alert! 🔥",
+      message: `${product.title} is now ₹${newPrice}, down from ₹${previousPrice}. Check it out on Odikart!`,
+      productId: product._id,
+      link: `/product/${product._id}`,
+      isPromotional: true,
+    });
+
+    console.log("Notification result:", notification);
+
+    // Update the saved price after processing.
+    item.price = newPrice;
+    item.title = product.title;
+
+    await wishlist.save();
+
+    console.log("✅ Wishlist price snapshot updated.");
+  } catch (error) {
+    console.error(
+      "Wishlist Price Drop Notification Error:",
+      error?.stack || error?.message || error
+    );
+  }
+}
+
 };
 /* =====================================
    UPDATE PRODUCT
