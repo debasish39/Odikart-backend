@@ -496,6 +496,9 @@ notificationSettings: {
   orderUpdates: { type: Boolean, default: true },
   couponAlerts: { type: Boolean, default: true },
   cartReminders: { type: Boolean, default: true },
+
+  // New preference
+  backInStockAlerts: { type: Boolean, default: true },
 },
 
       /* =====================================

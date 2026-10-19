@@ -30,8 +30,8 @@ const TYPE_PREFERENCES = {
   coupon: "couponAlerts",
   cart_reminder: "cartReminders",
   wishlist: "wishlistOffers",
+  back_in_stock: "backInStockAlerts",
 };
-
 const ANDROID_CHANNELS = {
   promotion: "offers",
   price_drop: "offers",
@@ -42,14 +42,16 @@ const ANDROID_CHANNELS = {
   cart_reminder: "offers",
   offer: "offers",
   announcement: "offers",
+  back_in_stock: "offers",
+
   order: "orders",
   order_update: "orders",
   delivery: "orders",
+
   account: "general",
   system: "general",
   wishlist: "general",
 };
-
 const cleanText = (value) => String(value ?? "").trim();
 
 const isMarketingNotification = (type, explicitValue) =>
@@ -215,14 +217,19 @@ notification: {
     ? { imageUrl: imageUrl.trim() }
     : {}),
 },
-          data: {
-            type: String(type),
-            orderId: orderId ? String(orderId) : "",
-            productId: productId ? String(productId) : "",
-            couponId: couponId ? String(couponId) : "",
-            link: cleanText(link),
-            isPromotional: String(promotional),
-          },
+        data: {
+  type: String(type),
+  orderId: orderId ? String(orderId) : "",
+  productId: productId ? String(productId) : "",
+  couponId: couponId ? String(couponId) : "",
+  link: cleanText(link),
+  isPromotional: String(promotional),
+  imageUrl:
+    typeof imageUrl === "string" &&
+    /^https:\/\/\S+$/i.test(imageUrl.trim())
+      ? imageUrl.trim()
+      : "",
+},
 
           android: {
             priority: "high",

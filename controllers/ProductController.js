@@ -9,6 +9,7 @@ import RecentlyViewed from "../models/RecentlyViewed.js";
 
 import Wishlist from "../models/Wishlist.js";
 import { createAndSendNotification } from "../utils/notificationService.js";
+import { notifyWishlistBackInStock } from "../utils/backInStockNotifications.js";
 
 
 /* =====================================
@@ -4635,10 +4636,7 @@ export const getSellerProducts = async (
    UPDATE VARIANT STOCK
 ===================================== */
 
-export const updateVariantStock = async (
-  req,
-  res
-) => {
+export const updateVariantStock = async (req, res) => {
   try {
     const seller = await getApprovedSeller(req, res);
 
@@ -4648,11 +4646,7 @@ export const updateVariantStock = async (
 
     const sellerId = getUserId(req);
 
-    const {
-      productId,
-      variantSku,
-      stock,
-    } = req.body;
+    const { productId, variantSku, stock } = req.body;
 
     if (!isValidObjectId(productId)) {
       return res.status(400).json({
@@ -4661,56 +4655,73 @@ export const updateVariantStock = async (
       });
     }
 
-    const normalizedSku =
-      cleanString(variantSku, 100);
+    const normalizedSku = cleanString(variantSku, 100);
 
     const numericStock = Number(stock);
+
     if (
       stock === undefined ||
+      stock === null ||
+      stock === "" ||
       !Number.isInteger(numericStock) ||
       numericStock < 0 ||
       numericStock > MAX_STOCK
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Valid stock is required",
+        message: "Valid stock is required",
       });
     }
 
-    const product =
-      await Product.findOne({
-        _id: productId,
-        seller: sellerId,
-        isDeleted: false,
+    if (!normalizedSku) {
+      return res.status(400).json({
+        success: false,
+        message: "Variant SKU is required",
       });
+    }
+
+    const product = await Product.findOne({
+      _id: productId,
+      seller: sellerId,
+      isDeleted: false,
+    });
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message:
-          "Product not found",
+        message: "Product not found",
       });
     }
 
-    const variant =
-      product.variants.find(
-        (item) =>
-          item.sku === variantSku
-      );
+    const variant = product.variants.find(
+      (item) => item.sku === normalizedSku
+    );
 
     if (!variant) {
       return res.status(404).json({
         success: false,
-        message:
-          "Variant not found",
+        message: "Variant not found",
       });
     }
 
-    const oldStock =
-      variant.stock;
+    // Check availability before changing inventory.
+    const wasInStock = product.variants.some(
+      (item) =>
+        item.isActive !== false &&
+        Number(item.stock) > 0
+    );
 
+    const oldStock = Number(variant.stock || 0);
+
+    // Update the selected variant.
     variant.stock = numericStock;
+
+    // Check availability after changing inventory.
+    const isInStock = product.variants.some(
+      (item) =>
+        item.isActive !== false &&
+        Number(item.stock) > 0
+    );
 
     /* =====================================
        INVENTORY HISTORY
@@ -4718,12 +4729,8 @@ export const updateVariantStock = async (
 
     let action = "adjustment";
 
-    if (stock > oldStock) {
+    if (numericStock > oldStock) {
       action = "restock";
-    }
-
-    if (stock < oldStock) {
-      action = "adjustment";
     }
 
     product.inventoryHistory.push({
@@ -4736,18 +4743,31 @@ export const updateVariantStock = async (
 
     await product.save();
 
+    /* =====================================
+       WISHLIST BACK-IN-STOCK NOTIFICATION
+    ===================================== */
+
+    // Notify only when the whole product changes
+    // from unavailable to available.
+    if (!wasInStock && isInStock) {
+      try {
+        await notifyWishlistBackInStock({ product });
+      } catch (notificationError) {
+        // Notification failure must not fail stock updates.
+        console.error(
+          "Wishlist back-in-stock notification error:",
+          notificationError?.message || notificationError
+        );
+      }
+    }
+
     return res.status(200).json({
       success: true,
-      message:
-        "Stock updated successfully",
+      message: "Stock updated successfully",
       variant,
     });
-
   } catch (error) {
-    console.error(
-      "Update Stock Error:",
-      error
-    );
+    console.error("Update Stock Error:", error);
 
     return res.status(500).json({
       success: false,
