@@ -4636,8 +4636,12 @@ export const getSellerProducts = async (
    UPDATE VARIANT STOCK
 ===================================== */
 
+
 export const updateVariantStock = async (req, res) => {
   try {
+    // =========================================
+    // 1. SELLER AUTHORIZATION
+    // =========================================
     const seller = await getApprovedSeller(req, res);
 
     if (!seller) {
@@ -4646,6 +4650,9 @@ export const updateVariantStock = async (req, res) => {
 
     const sellerId = getUserId(req);
 
+    // =========================================
+    // 2. REQUEST VALIDATION
+    // =========================================
     const { productId, variantSku, stock } = req.body;
 
     if (!isValidObjectId(productId)) {
@@ -4657,22 +4664,6 @@ export const updateVariantStock = async (req, res) => {
 
     const normalizedSku = cleanString(variantSku, 100);
 
-    const numericStock = Number(stock);
-
-    if (
-      stock === undefined ||
-      stock === null ||
-      stock === "" ||
-      !Number.isInteger(numericStock) ||
-      numericStock < 0 ||
-      numericStock > MAX_STOCK
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid stock is required",
-      });
-    }
-
     if (!normalizedSku) {
       return res.status(400).json({
         success: false,
@@ -4680,6 +4671,26 @@ export const updateVariantStock = async (req, res) => {
       });
     }
 
+    if (
+      stock === undefined ||
+      stock === null ||
+      stock === "" ||
+      (typeof stock !== "number" && typeof stock !== "string") ||
+      !Number.isInteger(Number(stock)) ||
+      Number(stock) < 0 ||
+      Number(stock) > MAX_STOCK
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid stock is required",
+      });
+    }
+
+    const numericStock = Number(stock);
+
+    // =========================================
+    // 3. FIND SELLER'S PRODUCT
+    // =========================================
     const product = await Product.findOne({
       _id: productId,
       seller: sellerId,
@@ -4693,6 +4704,9 @@ export const updateVariantStock = async (req, res) => {
       });
     }
 
+    // =========================================
+    // 4. FIND VARIANT
+    // =========================================
     const variant = product.variants.find(
       (item) => item.sku === normalizedSku
     );
@@ -4704,7 +4718,9 @@ export const updateVariantStock = async (req, res) => {
       });
     }
 
-    // Check availability before changing inventory.
+    // =========================================
+    // 5. CHECK PRODUCT AVAILABILITY BEFORE UPDATE
+    // =========================================
     const wasInStock = product.variants.some(
       (item) =>
         item.isActive !== false &&
@@ -4713,20 +4729,21 @@ export const updateVariantStock = async (req, res) => {
 
     const oldStock = Number(variant.stock || 0);
 
-    // Update the selected variant.
+    // =========================================
+    // 6. UPDATE VARIANT STOCK
+    // =========================================
     variant.stock = numericStock;
 
-    // Check availability after changing inventory.
+    // Availability after changing stock.
     const isInStock = product.variants.some(
       (item) =>
         item.isActive !== false &&
         Number(item.stock) > 0
     );
 
-    /* =====================================
-       INVENTORY HISTORY
-    ===================================== */
-
+    // =========================================
+    // 7. INVENTORY HISTORY
+    // =========================================
     let action = "adjustment";
 
     if (numericStock > oldStock) {
@@ -4741,26 +4758,43 @@ export const updateVariantStock = async (req, res) => {
       updatedBy: sellerId,
     });
 
+    // =========================================
+    // 8. SAVE PRODUCT
+    // =========================================
     await product.save();
 
-    /* =====================================
-       WISHLIST BACK-IN-STOCK NOTIFICATION
-    ===================================== */
-
-    // Notify only when the whole product changes
+    // =========================================
+    // 9. WISHLIST BACK-IN-STOCK NOTIFICATION
+    // =========================================
+    // Only trigger when the whole product changes
     // from unavailable to available.
+    //
+    // The helper must query Wishlist by productId
+    // and send only to matching wishlist customers.
     if (!wasInStock && isInStock) {
       try {
         await notifyWishlistBackInStock({ product });
+
+        console.log(
+          "Wishlist back-in-stock processing completed:",
+          {
+            productId: String(product._id),
+            productName: product.title || product.name,
+          }
+        );
       } catch (notificationError) {
-        // Notification failure must not fail stock updates.
+        // A notification failure must not undo a
+        // successful inventory update.
         console.error(
-          "Wishlist back-in-stock notification error:",
+          "Wishlist back-in-stock notification failed:",
           notificationError?.message || notificationError
         );
       }
     }
 
+    // =========================================
+    // 10. SUCCESS RESPONSE
+    // =========================================
     return res.status(200).json({
       success: true,
       message: "Stock updated successfully",
@@ -4775,6 +4809,7 @@ export const updateVariantStock = async (req, res) => {
     });
   }
 };
+
 /* =====================================
    SUBMIT PRODUCT
 ===================================== */
