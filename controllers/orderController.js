@@ -2688,121 +2688,130 @@ export const updateOrderStatus = async (req, res) => {
        Notification failure must never fail the order update.
     ===================================================== */
 
-    try {
-      const orderNotificationMap = {
-        Confirmed: {
-          title: "Order Confirmed 🎉",
-          message: `Your order ${order.orderNumber} has been confirmed.`,
-        },
+   
+/* =====================================================
+   ORDER STATUS NOTIFICATIONS
+   Save the status first; notification failures must
+   never fail the order update.
+===================================================== */
 
-        Processing: {
-          title: "Order Processing ⚙️",
-          message: `Your order ${order.orderNumber} is now being processed.`,
-        },
+try {
+  const orderNotificationMap = {
+    Confirmed: {
+      title: "Order Confirmed 🎉",
+      message: `Your order ${order.orderNumber} has been confirmed.`,
+    },
 
-        Packed: {
-          title: "Order Packed 📦",
-          message: `Your order ${order.orderNumber} has been packed and is ready for dispatch.`,
-        },
+    Processing: {
+      title: "Order Processing ⚙️",
+      message: `Your order ${order.orderNumber} is now being processed.`,
+    },
 
-        "Ready for Pickup": {
-          title: "Ready for Pickup 🚚",
-          message: `Your order ${order.orderNumber} is ready for courier pickup.`,
-        },
+    Packed: {
+      title: "Order Packed 📦",
+      message: `Your order ${order.orderNumber} has been packed and is ready for dispatch.`,
+    },
 
-        Shipped: {
-          title: "Order Shipped 🚚",
-          message: `Your order ${order.orderNumber} has been shipped.`,
-        },
+    "Ready for Pickup": {
+      title: "Ready for Pickup 🚚",
+      message: `Your order ${order.orderNumber} is ready for courier pickup.`,
+    },
 
-        "In Transit": {
-          title: "Order In Transit 📦",
-          message: `Your order ${order.orderNumber} is currently in transit.`,
-        },
+    Shipped: {
+      title: "Order Shipped 🚚",
+      message: `Your order ${order.orderNumber} has been shipped.`,
+    },
 
-        "Out for Delivery": {
-          title: "Out for Delivery 🛵",
-          message: `Your order ${order.orderNumber} is out for delivery.`,
-        },
+    "In Transit": {
+      title: "Order In Transit 📦",
+      message: `Your order ${order.orderNumber} is currently in transit.`,
+    },
 
-        Delivered: {
-          title: "Order Delivered 🎉",
-          message: `Your order ${order.orderNumber} has been delivered successfully.`,
-        },
+    "Out for Delivery": {
+      title: "Out for Delivery 🛵",
+      message: `Your order ${order.orderNumber} is out for delivery.`,
+    },
 
-        Cancelled: {
-          title: "Order Cancelled ❌",
-          message: `Your order ${order.orderNumber} has been cancelled.`,
-        },
+    Delivered: {
+      title: "Order Delivered 🎉",
+      message: `Your order ${order.orderNumber} has been delivered successfully.`,
+    },
 
-        "Return Requested": {
-          title: "Return Request Received ↩️",
-          message: `Your return request for order ${order.orderNumber} has been received.`,
-        },
+    Cancelled: {
+      title: "Order Cancelled ❌",
+      message: `Your order ${order.orderNumber} has been cancelled.`,
+    },
 
-        "Return Approved": {
-          title: "Return Approved ✅",
-          message: `Your return request for order ${order.orderNumber} has been approved.`,
-        },
+    "Return Requested": {
+      title: "Return Request Received ↩️",
+      message: `Your return request for order ${order.orderNumber} has been received.`,
+    },
 
-        "Return Pickup Scheduled": {
-          title: "Return Pickup Scheduled 🚚",
-          message: `Pickup for your return ${order.orderNumber} has been scheduled.`,
-        },
+    "Return Approved": {
+      title: "Return Approved ✅",
+      message: `Your return request for order ${order.orderNumber} has been approved.`,
+    },
 
-        "Return Picked Up": {
-          title: "Return Picked Up 📦",
-          message: `Your returned item for order ${order.orderNumber} has been picked up.`,
-        },
+    "Return Rejected": {
+      title: "Return Request Rejected",
+      message: `Your return request for order ${order.orderNumber} has been rejected.`,
+    },
 
-        "Received by Admin": {
-          title: "Return Received 📦",
-          message: `Your returned item for order ${order.orderNumber} has been received.`,
-        },
+    "Return Pickup Scheduled": {
+      title: "Return Pickup Scheduled 🚚",
+      message: `Pickup for your return ${order.orderNumber} has been scheduled.`,
+    },
 
-        Inspection: {
-          title: "Return Under Inspection 🔍",
-          message: `Your returned item for order ${order.orderNumber} is being inspected.`,
-        },
+    "Return Picked Up": {
+      title: "Return Picked Up 📦",
+      message: `Your returned item for order ${order.orderNumber} has been picked up.`,
+    },
 
-        "Refund Processing": {
-          title: "Refund Processing 💰",
-          message: `Your refund for order ${order.orderNumber} is being processed.`,
-        },
+    "Received by Admin": {
+      title: "Return Received 📦",
+      message: `Your returned item for order ${order.orderNumber} has been received.`,
+    },
 
-        "Refund Completed": {
-          title: "Refund Completed 💰",
-          message: `Your refund for order ${order.orderNumber} has been completed.`,
-        },
+    Inspection: {
+      title: "Return Under Inspection 🔍",
+      message: `Your returned item for order ${order.orderNumber} is being inspected.`,
+    },
 
-        "Return Rejected": {
-          title: "Return Request Rejected",
-          message: `Your return request for order ${order.orderNumber} has been rejected.`,
-        },
-      };
+    "Refund Processing": {
+      title: "Refund Processing 💰",
+      message: `Your refund for order ${order.orderNumber} is being processed.`,
+    },
 
-      const notification = orderNotificationMap[status];
+    "Refund Completed": {
+      title: "Refund Completed 💰",
+      message: `Your refund for order ${order.orderNumber} has been completed.`,
+    },
+  };
 
-      if (notification) {
-        console.log("🚨🚨 ORDER NOTIFICATION BLOCK REACHED 🚨🚨");
+  const notification = orderNotificationMap[status];
 
-        console.log({
-          orderId: order._id?.toString(),
-          orderNumber: order.orderNumber,
-          orderUserId: order.userId?.toString(),
-          newStatus: status,
-        });
-        await createOrderNotification({
-          userId: order.userId,
-          orderId: order._id,
-          title: notification.title,
-          message: notification.message,
-          link: `/orders/${order._id}`,
-        });
-      }
-    } catch (notificationError) {
-      console.error("Website order notification failed:", notificationError);
-    }
+  if (notification && order.userId) {
+    await createOrderNotification({
+      userId: order.userId,
+      orderId: order._id,
+      title: notification.title,
+      message: notification.message,
+      link: `/orders/${order._id}`,
+    });
+
+    console.log("Order status notification processed:", {
+      orderId: String(order._id),
+      orderNumber: order.orderNumber,
+      status,
+    });
+  }
+} catch (notificationError) {
+  console.error(
+    "Order status notification failed:",
+    notificationError?.message || notificationError
+  );
+}
+
 
     /* =====================================================
        REFERRAL REWARD PROCESSOR
