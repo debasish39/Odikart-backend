@@ -8,6 +8,7 @@ import {
   deleteNotification,
   updateNotificationSettings,
   sendNotificationToUser,
+  sendPromotionToAllCustomers,
   registerDevice,
   unregisterDevice,
 } from "../controllers/notificationController.js";
@@ -86,6 +87,10 @@ router.post(
   authMiddleware,
   sendNotificationToUser
 );
-
+router.post(
+  "/send-promotion",
+  authMiddleware,
+  sendPromotionToAllCustomers
+);
 
 export default router;

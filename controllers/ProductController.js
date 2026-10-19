@@ -4145,7 +4145,7 @@ for (const wishlist of wishlists) {
 
   try {
     console.log("🚀 Sending price-drop notification...");
-
+const imageUrl = product.media?.images?.[0] || "";
 const notification = await createAndSendNotification({
   userId: wishlist.userId,
   type: "price_drop",
@@ -4153,6 +4153,7 @@ const notification = await createAndSendNotification({
   message: `${product.title} is now ₹${newPrice}, down from ₹${previousPrice}. Check it out on Odikart!`,
   productId: product._id,
   link: `/product/${product._id}`,
+  imageUrl,
   isPromotional: true,
 });
 onsole.log("🔔 Notification result:", {

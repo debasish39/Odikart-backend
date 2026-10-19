@@ -170,6 +170,8 @@ export const sendPushNotification = async ({
   couponId = null,
   link = "",
   isPromotional = false,
+  imageUrl = "",
+
 }) => {
   if (!userId || !cleanText(title) || !cleanText(message)) {
     throw new Error("userId, title and message are required");
@@ -205,12 +207,14 @@ export const sendPushNotification = async ({
       const response =
         await firebaseMessaging.sendEachForMulticast({
           tokens: batch.map((device) => device.token),
-
-          notification: {
-            title: cleanText(title),
-            body: cleanText(message),
-          },
-
+notification: {
+  title: cleanText(title),
+  body: cleanText(message),
+  ...(typeof imageUrl === "string" &&
+  /^https:\/\/\S+$/i.test(imageUrl.trim())
+    ? { imageUrl: imageUrl.trim() }
+    : {}),
+},
           data: {
             type: String(type),
             orderId: orderId ? String(orderId) : "",
@@ -283,6 +287,7 @@ export const createAndSendNotification = async (options) => {
     link = "",
     isPromotional = false,
     createdBy = null,
+    imageUrl = "",
   } = options;
 
   if (!userId || !cleanText(title) || !cleanText(message)) {
@@ -325,6 +330,7 @@ export const createAndSendNotification = async (options) => {
       couponId,
       link,
       isPromotional: promotional,
+      imageUrl,
     });
   } catch (error) {
     console.error("Push notification failed:", error.message);

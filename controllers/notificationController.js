@@ -5,6 +5,8 @@ import User from "../models/User.js";
 import DeviceToken from "../models/DeviceToken.js";
 import {
   createAndSendNotification,
+  createNotification,
+  sendPushNotification,
 } from "../utils/notificationService.js";
 
 
@@ -647,3 +649,118 @@ export const unregisterDevice = async (req, res) => {
     });
   }
 };
+
+
+/* =========================================================
+   ADMIN SEND PROMOTION TO ALL CUSTOMERS
+========================================================= */
+
+
+export const sendPromotionToAllCustomers = async (req, res) => {
+  try {
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const { title, message, link = "/" ,imageUrl="",} = req.body;
+
+    if (
+      !String(title || "").trim() ||
+      !String(message || "").trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Title and message are required",
+      });
+    }
+
+    const customers = await User.find({
+      role: "user",
+      isBlocked: { $ne: true },
+      isDeleted: { $ne: true },
+    })
+      .select("_id notificationSettings")
+      .lean();
+
+    const result = {
+      totalCustomers: customers.length,
+      skipped: 0,
+      inAppCreated: 0,
+      pushSent: 0,
+      pushFailed: 0,
+      pushSkipped: 0,
+      errors: 0,
+    };
+
+    for (const customer of customers) {
+      const settings = customer.notificationSettings || {};
+
+      // Respect the customer's promotional preference for both
+      // in-app and push promotions.
+      if (settings.promotions === false) {
+        result.skipped++;
+        continue;
+      }
+
+      try {
+        if (settings.inApp !== false) {
+          const notification = await createNotification({
+            userId: customer._id,
+            type: "promotion",
+            title: String(title).trim(),
+            message: String(message).trim(),
+            link: String(link).trim(),
+            isPromotional: true,
+            createdBy: getUserId(req),
+          });
+
+          if (notification) {
+            result.inAppCreated++;
+          }
+        }
+
+        const pushResult = await sendPushNotification({
+          userId: customer._id,
+          type: "promotion",
+          title: String(title).trim(),
+          message: String(message).trim(),
+          link: String(link).trim(),
+          isPromotional: true,
+          imageUrl,
+        });
+
+        result.pushSent += pushResult.sent || 0;
+        result.pushFailed += pushResult.failed || 0;
+
+        if (pushResult.skipped) {
+          result.pushSkipped++;
+        }
+      } catch (error) {
+        result.errors++;
+
+        console.error(
+          "Promotion processing failed for customer:",
+          String(customer._id),
+          error?.message || error
+        );
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Promotion processing completed",
+      ...result,
+    });
+  } catch (error) {
+    console.error("Bulk Promotion Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to process promotion",
+    });
+  }
+};
+
