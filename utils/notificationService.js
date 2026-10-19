@@ -2,13 +2,119 @@
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
 import DeviceToken from "../models/DeviceToken.js";
-
-// Change this import if your Firebase Admin file is in a different folder.
 import { firebaseMessaging } from "../config/firebaseAdmin.js";
 
+const MARKETING_TYPES = new Set([
+  "promotion",
+  "price_drop",
+  "wishlist_offer",
+  "new_product",
+  "flash_sale",
+  "coupon",
+  "cart_reminder",
+  "offer",
+  "announcement",
+]);
+
+// Maps notification types to optional per-type user settings.
+// These settings are respected when present and not false.
+const TYPE_PREFERENCES = {
+  promotion: "promotions",
+  price_drop: "priceDropAlerts",
+  wishlist_offer: "wishlistOffers",
+  new_product: "newProductAlerts",
+  flash_sale: "flashSaleAlerts",
+  order_update: "orderUpdates",
+  order: "orderUpdates",
+  delivery: "orderUpdates",
+  coupon: "couponAlerts",
+  cart_reminder: "cartReminders",
+  wishlist: "wishlistOffers",
+};
+
+const ANDROID_CHANNELS = {
+  promotion: "offers",
+  price_drop: "offers",
+  wishlist_offer: "offers",
+  new_product: "offers",
+  flash_sale: "offers",
+  coupon: "offers",
+  cart_reminder: "offers",
+  offer: "offers",
+  announcement: "offers",
+  order: "orders",
+  order_update: "orders",
+  delivery: "orders",
+  account: "general",
+  system: "general",
+  wishlist: "general",
+};
+
+const cleanText = (value) => String(value ?? "").trim();
+
+const isMarketingNotification = (type, explicitValue) =>
+  Boolean(explicitValue) || MARKETING_TYPES.has(type);
+
+const isPreferenceDisabled = (user, type, isPromotional) => {
+  const settings = user.notificationSettings || {};
+
+  if (settings.push === false) return true;
+
+  if (
+    isPromotional &&
+    settings.promotionalPush === false
+  ) {
+    return true;
+  }
+
+  const preference = TYPE_PREFERENCES[type];
+
+  if (preference && settings[preference] === false) {
+    return true;
+  }
+
+  return false;
+};
+
+const getActiveUser = async (userId) => {
+  if (!userId) return null;
+
+  return User.findById(userId).select(
+    "notificationSettings isBlocked isDeleted"
+  );
+};
+
+const isEligibleUser = (user) =>
+  Boolean(user && !user.isBlocked && !user.isDeleted);
+
+const createNotificationRecord = async ({
+  userId,
+  type,
+  title,
+  message,
+  orderId = null,
+  productId = null,
+  couponId = null,
+  link = "",
+  isPromotional,
+  createdBy = null,
+}) => {
+  return Notification.create({
+    userId,
+    type,
+    title: cleanText(title),
+    message: cleanText(message),
+    orderId,
+    productId,
+    couponId,
+    link: cleanText(link),
+    isPromotional,
+    createdBy,
+  });
+};
+
 /**
- * Create an in-app website notification.
- * Preserves the existing behavior.
+ * Create an in-app notification only.
  */
 export const createNotification = async ({
   userId,
@@ -16,41 +122,43 @@ export const createNotification = async ({
   title,
   message,
   orderId = null,
+  productId = null,
+  couponId = null,
   link = "",
   isPromotional = false,
   createdBy = null,
 }) => {
-  if (!userId || !title || !message) {
+  if (!userId || !cleanText(title) || !cleanText(message)) {
     throw new Error("userId, title and message are required");
   }
 
-  const user = await User.findById(userId).select(
-    "notificationSettings isBlocked isDeleted"
-  );
+  const user = await getActiveUser(userId);
 
   if (
-    !user ||
-    user.isBlocked ||
-    user.isDeleted ||
+    !isEligibleUser(user) ||
     user.notificationSettings?.inApp === false
   ) {
     return null;
   }
 
-  return Notification.create({
+  const promotional = isMarketingNotification(type, isPromotional);
+
+  return createNotificationRecord({
     userId,
     type,
-    title: String(title).trim(),
-    message: String(message).trim(),
+    title,
+    message,
     orderId,
+    productId,
+    couponId,
     link,
-    isPromotional,
+    isPromotional: promotional,
     createdBy,
   });
 };
 
 /**
- * Send a native Android push notification through Firebase Cloud Messaging.
+ * Send native Android push through Firebase Cloud Messaging.
  */
 export const sendPushNotification = async ({
   userId,
@@ -58,31 +166,25 @@ export const sendPushNotification = async ({
   message,
   type = "system",
   orderId = null,
+  productId = null,
+  couponId = null,
   link = "",
   isPromotional = false,
 }) => {
-  if (!userId || !title || !message) {
+  if (!userId || !cleanText(title) || !cleanText(message)) {
     throw new Error("userId, title and message are required");
   }
 
-  const user = await User.findById(userId).select(
-    "notificationSettings isBlocked isDeleted"
-  );
+  const user = await getActiveUser(userId);
 
-  if (!user || user.isBlocked || user.isDeleted) {
-    return { sent: 0, skipped: true };
+  if (!isEligibleUser(user)) {
+    return { sent: 0, failed: 0, skipped: true };
   }
 
-  const settings = user.notificationSettings;
+  const promotional = isMarketingNotification(type, isPromotional);
 
-  // Respect the customer's push notification preferences.
-  if (settings?.push === false) {
-    return { sent: 0, skipped: true };
-  }
-
-  // Respect the separate promotional push preference.
-  if (isPromotional && settings?.promotionalPush === false) {
-    return { sent: 0, skipped: true };
+  if (isPreferenceDisabled(user, type, promotional)) {
+    return { sent: 0, failed: 0, skipped: true };
   }
 
   const devices = await DeviceToken.find({
@@ -91,45 +193,46 @@ export const sendPushNotification = async ({
   }).select("_id token");
 
   if (!devices.length) {
-    return { sent: 0, skipped: true };
+    return { sent: 0, failed: 0, skipped: true };
   }
 
   const results = { sent: 0, failed: 0 };
 
-  // FCM multicast requests support up to 500 tokens.
   for (let i = 0; i < devices.length; i += 500) {
     const batch = devices.slice(i, i + 500);
 
     try {
-      const response = await firebaseMessaging.sendEachForMulticast({
-        tokens: batch.map((device) => device.token),
+      const response =
+        await firebaseMessaging.sendEachForMulticast({
+          tokens: batch.map((device) => device.token),
 
-        notification: {
-          title: String(title).trim(),
-          body: String(message).trim(),
-        },
-
-        data: {
-          type: String(type),
-          orderId: orderId ? String(orderId) : "",
-          link: String(link || ""),
-          isPromotional: String(Boolean(isPromotional)),
-        },
-
-        android: {
-          priority: "high",
           notification: {
-            channelId: isPromotional ? "offers" : "orders",
-            sound: "default",
+            title: cleanText(title),
+            body: cleanText(message),
           },
-        },
-      });
+
+          data: {
+            type: String(type),
+            orderId: orderId ? String(orderId) : "",
+            productId: productId ? String(productId) : "",
+            couponId: couponId ? String(couponId) : "",
+            link: cleanText(link),
+            isPromotional: String(promotional),
+          },
+
+          android: {
+            priority: "high",
+            notification: {
+              channelId: ANDROID_CHANNELS[type] || "general",
+              sound: "default",
+            },
+          },
+        });
 
       results.sent += response.successCount;
       results.failed += response.failureCount;
 
-      // Remove tokens Firebase confirms are no longer valid.
-      const invalidTokens = [];
+      const invalidTokenIds = [];
 
       response.responses.forEach((item, index) => {
         const code = item.error?.code;
@@ -141,13 +244,13 @@ export const sendPushNotification = async ({
             "messaging/registration-token-not-registered",
           ].includes(code)
         ) {
-          invalidTokens.push(batch[index]._id);
+          invalidTokenIds.push(batch[index]._id);
         }
       });
 
-      if (invalidTokens.length) {
+      if (invalidTokenIds.length) {
         await DeviceToken.deleteMany({
-          _id: { $in: invalidTokens },
+          _id: { $in: invalidTokenIds },
         });
       }
     } catch (error) {
@@ -156,14 +259,17 @@ export const sendPushNotification = async ({
     }
   }
 
-  console.log("📱 FCM delivery result:", results);
+  console.log("📱 FCM delivery result:", {
+    type,
+    ...results,
+  });
 
   return results;
 };
 
 /**
- * Create the website notification and attempt Android push delivery.
- * A push failure does not undo the saved website notification.
+ * Create the in-app notification and attempt push delivery.
+ * Push failures do not remove the saved in-app notification.
  */
 export const createAndSendNotification = async (options) => {
   const {
@@ -172,30 +278,38 @@ export const createAndSendNotification = async (options) => {
     title,
     message,
     orderId = null,
+    productId = null,
+    couponId = null,
     link = "",
     isPromotional = false,
     createdBy = null,
   } = options;
 
-  const user = await User.findById(userId).select(
-    "notificationSettings isBlocked isDeleted"
-  );
+  if (!userId || !cleanText(title) || !cleanText(message)) {
+    throw new Error("userId, title and message are required");
+  }
 
-  if (!user || user.isBlocked || user.isDeleted) {
+  const user = await getActiveUser(userId);
+
+  if (!isEligibleUser(user)) {
     return null;
   }
+
+  const promotional = isMarketingNotification(type, isPromotional);
 
   let notification = null;
 
   if (user.notificationSettings?.inApp !== false) {
-    notification = await Notification.create({
+    notification = await createNotificationRecord({
       userId,
       type,
-      title: String(title).trim(),
-      message: String(message).trim(),
+      title,
+      message,
       orderId,
+      productId,
+      couponId,
       link,
-      isPromotional,
+      isPromotional: promotional,
       createdBy,
     });
   }
@@ -203,12 +317,14 @@ export const createAndSendNotification = async (options) => {
   try {
     await sendPushNotification({
       userId,
-      type,
       title,
       message,
+      type,
       orderId,
+      productId,
+      couponId,
       link,
-      isPromotional,
+      isPromotional: promotional,
     });
   } catch (error) {
     console.error("Push notification failed:", error.message);
@@ -218,7 +334,8 @@ export const createAndSendNotification = async (options) => {
 };
 
 /**
- * Helper for order-related notifications.
+ * Backward-compatible helper for existing order notifications.
+ * Keeps type "order" so existing frontend filters continue to work.
  */
 export const createOrderNotification = async ({
   userId,

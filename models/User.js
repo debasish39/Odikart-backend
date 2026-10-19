@@ -484,40 +484,18 @@ const userSchema = new mongoose.Schema(
       ===================================== */
 
 notificationSettings: {
-  inApp: {
-    type: Boolean,
-    default: true,
-  },
+  inApp: { type: Boolean, default: true },
+  push: { type: Boolean, default: true },
+  promotionalPush: { type: Boolean, default: true },
 
-  email: {
-    type: Boolean,
-    default: true,
-  },
-
-  sms: {
-    type: Boolean,
-    default: true,
-  },
-
-  push: {
-    type: Boolean,
-    default: true,
-  },
-
-  promotionalEmail: {
-    type: Boolean,
-    default: true,
-  },
-
-  promotionalSms: {
-    type: Boolean,
-    default: true,
-  },
-
-  promotionalPush: {
-    type: Boolean,
-    default: true,
-  },
+  promotions: { type: Boolean, default: true },
+  priceDropAlerts: { type: Boolean, default: true },
+  wishlistOffers: { type: Boolean, default: true },
+  newProductAlerts: { type: Boolean, default: true },
+  flashSaleAlerts: { type: Boolean, default: true },
+  orderUpdates: { type: Boolean, default: true },
+  couponAlerts: { type: Boolean, default: true },
+  cartReminders: { type: Boolean, default: true },
 },
 
       /* =====================================

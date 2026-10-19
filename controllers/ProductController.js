@@ -7,6 +7,9 @@ import Category from "../models/Category.js";
 import User from "../models/User.js";
 import RecentlyViewed from "../models/RecentlyViewed.js";
 
+import Wishlist from "../models/Wishlist.js";
+import { createAndSendNotification } from "../utils/notificationService.js";
+
 
 /* =====================================
    RECENTLY VIEWED PRODUCTS
@@ -4075,164 +4078,197 @@ export const getProduct = async (
     });
   }
 };
+// Get the lowest selling price among active variants.
+const getLowestActivePrice = (variants = []) => {
+  const prices = variants
+    .filter((variant) => variant?.isActive !== false)
+    .map((variant) => Number(variant?.price))
+    .filter(
+      (price) =>
+        Number.isFinite(price) && price >= 0
+    );
 
+  return prices.length
+    ? Math.min(...prices)
+    : null;
+};
+
+
+// Notify users when a wishlisted product becomes cheaper.
+const notifyWishlistPriceDrop = async ({
+  product,
+  currentPrice,
+}) => {
+  if (
+    !product?._id ||
+    currentPrice == null ||
+    !Number.isFinite(Number(currentPrice))
+  ) {
+    return;
+  }
+
+  const wishlists = await Wishlist.find({
+    "items.productId": product._id,
+  });
+
+  for (const wishlist of wishlists) {
+    const item = wishlist.items.find(
+      (entry) =>
+        String(entry.productId) ===
+        String(product._id)
+    );
+
+    if (!item) continue;
+
+    const previousPrice = Number(item.price);
+    const newPrice = Number(currentPrice);
+
+    // Notify only when the current price is lower
+    // than the price saved in this wishlist.
+    if (
+      !Number.isFinite(previousPrice) ||
+      previousPrice < 0 ||
+      newPrice >= previousPrice
+    ) {
+      continue;
+    }
+
+    try {
+      await createAndSendNotification({
+        userId: wishlist.userId,
+        type: "price_drop",
+        title: "Price Drop Alert! 🔥",
+        message: `${product.title} is now ₹${newPrice}, down from ₹${previousPrice}. Check it out on Odikart!`,
+        productId: product._id,
+        link: `/product/${product._id}`,
+        isPromotional: true,
+      });
+
+      // Update the snapshot only after notification
+      // processing succeeds.
+      item.price = newPrice;
+      item.title = product.title;
+
+      await wishlist.save();
+
+    } catch (error) {
+      console.error(
+        "Wishlist Price Drop Notification Error:",
+        error?.message || error
+      );
+    }
+  }
+};
 /* =====================================
    UPDATE PRODUCT
 ===================================== */
 
+
 export const updateProduct = async (req, res) => {
   try {
-
     const userId =
       req.user?._id ||
       req.user?.id;
 
-    const userRole =
-      req.user?.role;
+    const userRole = req.user?.role;
 
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: "Authentication required"
+        message: "Authentication required",
       });
     }
 
-    const product =
-      await Product.findById(
-        req.params.id
-      );
+    const product = await Product.findById(
+      req.params.id
+    );
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
-
     /* =====================================================
-       ADMIN
-       -----------------------------------------------------
-       Admin can update ANY product.
-       No seller verification required.
+       ADMIN / SELLER AUTHORIZATION
     ===================================================== */
 
     if (userRole === "admin") {
-
-      // Admin can continue directly.
-
-    }
-
-
-    /* =====================================================
-       SELLER
-       -----------------------------------------------------
-       Seller can update ONLY own product.
-    ===================================================== */
-
-    else if (userRole === "seller") {
-
+      // Admin can update any product.
+    } else if (userRole === "seller") {
       if (
-        String(product.seller) !==
-        String(userId)
+        String(product.seller) !== String(userId)
       ) {
-
         return res.status(403).json({
           success: false,
           message:
-            "You can only update your own products"
+            "You can only update your own products",
         });
-
       }
 
-
-      /* ================================================
-         SELLER VERIFICATION
-      ================================================ */
-
-      const seller =
-        await User.findById(
-          userId
-        ).select(
-          "role sellerStatus isBlocked isDeleted sellerInfo.verification.status"
-        );
-
+      const seller = await User.findById(
+        userId
+      ).select(
+        "role sellerStatus isBlocked isDeleted sellerInfo.verification.status"
+      );
 
       if (!seller) {
         return res.status(404).json({
           success: false,
-          message: "Seller not found"
+          message: "Seller not found",
         });
       }
 
-
-      if (
-        seller.isBlocked ||
-        seller.isDeleted
-      ) {
+      if (seller.isBlocked || seller.isDeleted) {
         return res.status(403).json({
           success: false,
-          message:
-            "Seller account is not active"
+          message: "Seller account is not active",
         });
       }
 
+      if (seller.sellerStatus !== "approved") {
+        return res.status(403).json({
+          success: false,
+          message: "Seller account is not approved",
+        });
+      }
 
       if (
-        seller.sellerStatus !==
+        seller.sellerInfo?.verification?.status !==
         "approved"
       ) {
         return res.status(403).json({
           success: false,
           message:
-            "Seller account is not approved"
+            "Seller verification is not approved",
         });
       }
-
-
-      if (
-        seller.sellerInfo
-          ?.verification
-          ?.status !== "approved"
-      ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Seller verification is not approved"
-        });
-      }
-
-    }
-
-
-    /* =====================================================
-       INVALID ROLE
-    ===================================================== */
-
-    else {
-
+    } else {
       return res.status(403).json({
         success: false,
         message:
-          "Seller or admin access required"
+          "Seller or admin access required",
       });
-
     }
 
-
     /* =====================================================
-       UPDATE DATA
+       SNAPSHOT PREVIOUS VARIANTS
     ===================================================== */
 
-    // Keep a snapshot so we can distinguish a changed regular price from
-    // a stale price field sent by older versions of the admin editor.
-    const previousVariants = Array.isArray(product.variants)
+    const previousVariants = Array.isArray(
+      product.variants
+    )
       ? product.variants.map((variant) =>
           typeof variant?.toObject === "function"
             ? variant.toObject()
             : { ...variant }
         )
       : [];
+
+    /* =====================================================
+       ALLOWED UPDATE FIELDS
+    ===================================================== */
 
     const allowedFields = [
       "title",
@@ -4258,38 +4294,20 @@ export const updateProduct = async (req, res) => {
       "trending",
       "bestSeller",
       "isNewArrival",
-      "isActive"
+      "isActive",
     ];
 
-
-    for (
-      const field of allowedFields
-    ) {
-
-      if (
-        req.body[field] !==
-        undefined
-      ) {
-
-        product[field] =
-          req.body[field];
-
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        product[field] = req.body[field];
       }
-
     }
 
-
     /* =====================================================
-       NORMALIZE REGULAR PRICE BEFORE APPLYING OFFERS
+       NORMALIZE REGULAR PRICE
        -----------------------------------------------------
-       With no offer, regular price and selling price must
-       be identical. Support both the current admin editor
-       (which updates both fields) and older clients that
-       may update only one of the two fields.
-
-       With an offer enabled, originalPrice remains the
-       regular/base price and applyOfferToVariants computes
-       the discounted selling price.
+       When no offer is enabled, synchronize regular and
+       selling prices while supporting older admin editors.
     ===================================================== */
 
     if (
@@ -4297,78 +4315,123 @@ export const updateProduct = async (req, res) => {
       Array.isArray(product.variants) &&
       product.offer?.enabled !== true
     ) {
-      product.variants = product.variants.map((variant) => {
-        const currentVariant =
-          typeof variant?.toObject === "function"
-            ? variant.toObject()
-            : { ...variant };
+      product.variants = product.variants.map(
+        (variant) => {
+          const currentVariant =
+            typeof variant?.toObject === "function"
+              ? variant.toObject()
+              : { ...variant };
 
-        const incomingVariant = req.body.variants.find(
-          (item) =>
-            String(item?.sku || "").trim().toUpperCase() ===
-            String(currentVariant?.sku || "").trim().toUpperCase()
-        );
+          const normalizeSku = (value) =>
+            String(value || "")
+              .trim()
+              .toUpperCase();
 
-        const previousVariant = previousVariants.find(
-          (item) =>
-            String(item?.sku || "").trim().toUpperCase() ===
-            String(currentVariant?.sku || "").trim().toUpperCase()
-        );
+          const incomingVariant =
+            req.body.variants.find(
+              (item) =>
+                normalizeSku(item?.sku) ===
+                normalizeSku(currentVariant?.sku)
+            );
 
-        const incomingPrice = Number(incomingVariant?.price);
-        const incomingOriginalPrice = Number(incomingVariant?.originalPrice);
-        const oldPrice = Number(previousVariant?.price);
-        const oldOriginalPrice = Number(previousVariant?.originalPrice);
+          const previousVariant =
+            previousVariants.find(
+              (item) =>
+                normalizeSku(item?.sku) ===
+                normalizeSku(currentVariant?.sku)
+            );
 
-        const priceProvided =
-          incomingVariant?.price !== undefined &&
-          Number.isFinite(incomingPrice);
-        const originalPriceProvided =
-          incomingVariant?.originalPrice !== undefined &&
-          Number.isFinite(incomingOriginalPrice);
+          const incomingPrice = Number(
+            incomingVariant?.price
+          );
 
-        let regularPrice;
+          const incomingOriginalPrice = Number(
+            incomingVariant?.originalPrice
+          );
 
-        if (previousVariant && priceProvided && originalPriceProvided) {
-          const priceChanged = incomingPrice !== oldPrice;
-          const originalPriceChanged = incomingOriginalPrice !== oldOriginalPrice;
+          const oldPrice = Number(
+            previousVariant?.price
+          );
 
-          if (originalPriceChanged && !priceChanged) {
+          const oldOriginalPrice = Number(
+            previousVariant?.originalPrice
+          );
+
+          const priceProvided =
+            incomingVariant?.price !== undefined &&
+            Number.isFinite(incomingPrice);
+
+          const originalPriceProvided =
+            incomingVariant?.originalPrice !==
+              undefined &&
+            Number.isFinite(incomingOriginalPrice);
+
+          let regularPrice;
+
+          if (
+            previousVariant &&
+            priceProvided &&
+            originalPriceProvided
+          ) {
+            const priceChanged =
+              incomingPrice !== oldPrice;
+
+            const originalPriceChanged =
+              incomingOriginalPrice !==
+              oldOriginalPrice;
+
+            if (
+              originalPriceChanged &&
+              !priceChanged
+            ) {
+              regularPrice = incomingOriginalPrice;
+            } else if (
+              priceChanged &&
+              !originalPriceChanged
+            ) {
+              // Compatibility with older editors.
+              regularPrice = incomingPrice;
+            } else if (
+              originalPriceChanged &&
+              priceChanged
+            ) {
+              regularPrice = incomingOriginalPrice;
+            } else {
+              regularPrice = incomingOriginalPrice;
+            }
+          } else if (originalPriceProvided) {
             regularPrice = incomingOriginalPrice;
-          } else if (priceChanged && !originalPriceChanged) {
-            // Compatibility with the old editor's editable Selling Price field.
+          } else if (priceProvided) {
             regularPrice = incomingPrice;
-          } else if (originalPriceChanged && priceChanged) {
-            // Current editor sends both fields in sync for regular-price edits.
-            regularPrice = incomingOriginalPrice;
           } else {
-            regularPrice = incomingOriginalPrice;
+            regularPrice = Number(
+              currentVariant.originalPrice ??
+              currentVariant.price ??
+              0
+            );
           }
-        } else if (originalPriceProvided) {
-          regularPrice = incomingOriginalPrice;
-        } else if (priceProvided) {
-          regularPrice = incomingPrice;
-        } else {
-          regularPrice = Number(currentVariant.originalPrice ?? currentVariant.price ?? 0);
-        }
 
-        if (!Number.isFinite(regularPrice) || regularPrice < 0) {
-          regularPrice = 0;
-        }
+          if (
+            !Number.isFinite(regularPrice) ||
+            regularPrice < 0
+          ) {
+            regularPrice = 0;
+          }
 
-        return {
-          ...currentVariant,
-          originalPrice: regularPrice,
-          price: regularPrice,
-        };
-      });
+          return {
+            ...currentVariant,
+            originalPrice: regularPrice,
+            price: regularPrice,
+          };
+        }
+      );
     }
 
     /* =====================================================
        APPLY OFFER
        -----------------------------------------------------
-       This remains the single place where discounted prices
-       are calculated, preserving percentage and fixed offers.
+       Keep your existing offer calculation as the single
+       source of discounted selling prices.
     ===================================================== */
 
     product.variants = applyOfferToVariants(
@@ -4376,23 +4439,49 @@ export const updateProduct = async (req, res) => {
       product.offer
     );
 
+    /* =====================================================
+       CALCULATE CURRENT SELLING PRICE
+    ===================================================== */
+
+    const currentSellingPrice =
+      getLowestActivePrice(product.variants);
 
     /* =====================================================
-       SAVE
+       SAVE PRODUCT
     ===================================================== */
 
     await product.save();
 
+    /* =====================================================
+       WISHLIST PRICE-DROP NOTIFICATIONS
+       -----------------------------------------------------
+       Notification failures must not undo a successful
+       product update.
+    ===================================================== */
+
+    try {
+      await notifyWishlistPriceDrop({
+        product,
+        currentPrice: currentSellingPrice,
+      });
+    } catch (notificationError) {
+      console.error(
+        "Wishlist Price Drop Processing Error:",
+        notificationError?.message ||
+          notificationError
+      );
+    }
+
+    /* =====================================================
+       SUCCESS RESPONSE
+    ===================================================== */
 
     return res.status(200).json({
       success: true,
-      message:
-        "Product updated successfully",
-      product
+      message: "Product updated successfully",
+      product,
     });
-
   } catch (error) {
-
     console.error(
       "Update Product Error:",
       error
@@ -4402,11 +4491,11 @@ export const updateProduct = async (req, res) => {
       success: false,
       message:
         error.message ||
-        "Failed to update product"
+        "Failed to update product",
     });
-
   }
 };
+
 /* =====================================
    DELETE PRODUCT
 ===================================== */
