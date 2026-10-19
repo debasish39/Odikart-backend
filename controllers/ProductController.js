@@ -4110,7 +4110,11 @@ const notifyWishlistPriceDrop = async ({
   const wishlists = await Wishlist.find({
     "items.productId": product._id,
   });
-
+console.log("🔥 PRICE DROP CHECK");
+console.log("Product:", product.title);
+console.log("Product ID:", String(product._id));
+console.log("Current selling price:", currentPrice);
+console.log("Matching wishlists:", wishlists.length);
   for (const wishlist of wishlists) {
     const item = wishlist.items.find(
       (entry) =>
@@ -4121,6 +4125,13 @@ const notifyWishlistPriceDrop = async ({
     if (!item) continue;
 
     const previousPrice = Number(item.price);
+    console.log("Wishlist user:", String(wishlist.userId));
+console.log("Previous wishlist price:", previousPrice);
+console.log("New selling price:", newPrice);
+console.log(
+  "Is price drop:",
+  newPrice < previousPrice
+);
     const newPrice = Number(currentPrice);
 
     // Notify only when the current price is lower
@@ -4134,6 +4145,7 @@ const notifyWishlistPriceDrop = async ({
     }
 
     try {
+      console.log("🚀 Sending price-drop notification...");
       await createAndSendNotification({
         userId: wishlist.userId,
         type: "price_drop",
@@ -4143,7 +4155,10 @@ const notifyWishlistPriceDrop = async ({
         link: `/product/${product._id}`,
         isPromotional: true,
       });
-
+console.log("✅ Notification service returned:", {
+  userId: String(wishlist.userId),
+  productId: String(product._id),
+});
       // Update the snapshot only after notification
       // processing succeeds.
       item.price = newPrice;
