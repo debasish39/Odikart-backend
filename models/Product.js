@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 /* =====================================
@@ -18,10 +19,23 @@ const reviewSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Kept optional for compatibility with reviews created before
+    // reviewerPhone was introduced. Do not use email as the reviewer ID.
     reviewerEmail: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
+      default: undefined,
+    },
+
+    // The review controller should populate this from the authenticated user.
+    // Keep optional at schema level so older reviews without a phone do not
+    // prevent existing products from being saved.
+    reviewerPhone: {
+      type: String,
+      required: false,
+      trim: true,
+      default: "",
     },
 
     reviewerImage: {

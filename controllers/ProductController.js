@@ -1,3 +1,5 @@
+
+
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import slugify from "slugify";
@@ -4062,10 +4064,22 @@ export const getProduct = async (
       }
     );
 
-    return res.status(200).json({
-      success: true,
-      product,
-    });
+   const safeProduct = product.toObject();
+
+safeProduct.reviews = (safeProduct.reviews || []).map((review) => {
+  const {
+    reviewerPhone,
+    reviewerEmail,
+    ...publicReview
+  } = review;
+
+  return publicReview;
+});
+
+return res.status(200).json({
+  success: true,
+  product: safeProduct,
+});
 
   } catch (error) {
     console.error(
@@ -5084,37 +5098,32 @@ const reviewVideos =
 
   ) || [];
 
+    // The User model defines the customer's phone field as `phone`.
+    // Keep the phone number sourced from the authenticated account, never the request body.
+    const reviewerPhone = cleanString(user?.phone, 30);
+
+    if (!reviewerPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Please add a phone number to your profile before reviewing.",
+      });
+    }
+
+    const reviewerName =
+      [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+      user?.username ||
+      "Verified Customer";
+
     const review = {
-
-      user:
-        user._id,
-
-      rating:
-        numericRating,
-
-      comment:
-        cleanString(comment, MAX_COMMENT),
-
-      reviewerName:
-        `${user.firstName} ${user.lastName}`,
-
-      reviewerEmail:
-        undefined,
-
-      reviewerImage:
-        user.image,
-
-
-images:
-  reviewImages,
-
-videos:
-  reviewVideos,
-
-verifiedPurchase:
-  true,
-
-
+      user: user._id,
+      rating: numericRating,
+      comment: cleanString(comment, MAX_COMMENT),
+      reviewerName,
+      reviewerPhone,
+      reviewerImage: user?.image || "",
+      images: reviewImages,
+      videos: reviewVideos,
+      verifiedPurchase: true,
     };
 
     /* =====================================
@@ -5162,21 +5171,20 @@ verifiedPurchase:
 
     await product.save();
 
-    /* =====================================
-       RESPONSE
-    ===================================== */
+ const safeReviews = product.reviews.map((review) => {
+  const item = review.toObject();
 
-    res.status(201).json({
+  delete item.reviewerPhone;
+  delete item.reviewerEmail;
 
-      success: true,
+  return item;
+});
 
-      message:
-        "Review added successfully",
-
-      reviews:
-        product.reviews,
-
-    });
+return res.status(201).json({
+  success: true,
+  message: "Review added successfully",
+  reviews: safeReviews,
+});
 
   } catch (error) {
 
@@ -5521,16 +5529,18 @@ async (
        RESPONSE
     ===================================== */
 
-    res.status(200).json({
+    // Never expose reviewer contact information in public responses.
+    const safeReviews = product.reviews.map((review) => {
+      const item = review.toObject();
+      delete item.reviewerPhone;
+      delete item.reviewerEmail;
+      return item;
+    });
 
+    return res.status(200).json({
       success: true,
-
-      message:
-        "Review deleted successfully",
-
-      reviews:
-        product.reviews,
-
+      message: "Review deleted successfully",
+      reviews: safeReviews,
     });
 
   } catch (error) {
