@@ -1,3 +1,4 @@
+
 import razorpay from "../utils/razorpay.js";
 import Order from "../models/Order.js";
 import crypto from "crypto";
@@ -214,14 +215,30 @@ const markOrderPaid = async ({
   }
 
 
-  order.payment.status =
-    "Paid";
+  order.payment.status = "Paid";
 
+  // Clear stale failure text left by an earlier checkout attempt.
+  order.payment.paymentFailureReason = "";
 
   order.payment.paymentDate =
-    order.payment.paymentDate ||
-    new Date();
+    order.payment.paymentDate || new Date();
 
+  // Payment success and order fulfillment status are separate fields.
+  // Move only orders that are still waiting for payment to Confirmed.
+  // Never overwrite Cancelled, Processing, Shipped, or Delivered orders.
+  if (order.status === "Pending Payment") {
+    order.status = "Confirmed";
+
+    if (!Array.isArray(order.statusHistory)) {
+      order.statusHistory = [];
+    }
+
+    order.statusHistory.push({
+      status: "Confirmed",
+      date: new Date(),
+      remark: `Razorpay payment captured successfully (${eventSource || "payment verification"}).`,
+    });
+  }
 
   await order.save();
 
@@ -324,14 +341,19 @@ const markOrderFailed = async ({
   }
 
 
-  order.payment.status =
-    "Failed";
+  // A late payment.failed webhook must not overwrite a successful payment.
+  if (order.payment.status === "Paid" || order.payment.status === "Refunded") {
+    console.warn(
+      "Ignoring payment.failed event because payment is already",
+      order.payment.status,
+      "for order:",
+      order._id,
+    );
+    return order;
+  }
 
-
-  order.payment.paymentFailureReason =
-    reason ||
-    "Payment failed";
-
+  order.payment.status = "Failed";
+  order.payment.paymentFailureReason = reason || "Payment failed";
 
   await order.save();
 
@@ -824,17 +846,26 @@ export const verifyPayment =
         razorpay_signature;
 
 
-      order.payment.status =
-        "Paid";
+      order.payment.status = "Paid";
+      order.payment.paymentFailureReason = "";
+      order.payment.transactionId = razorpay_payment_id;
+      order.payment.paymentDate = new Date();
 
+      // Keep the order lifecycle in sync with verified payment.
+      // Do not change an order that has already been cancelled or fulfilled.
+      if (order.status === "Pending Payment") {
+        order.status = "Confirmed";
 
-      order.payment.transactionId =
-        razorpay_payment_id;
+        if (!Array.isArray(order.statusHistory)) {
+          order.statusHistory = [];
+        }
 
-
-      order.payment.paymentDate =
-        new Date();
-
+        order.statusHistory.push({
+          status: "Confirmed",
+          date: new Date(),
+          remark: "Razorpay payment verified successfully.",
+        });
+      }
 
       await order.save();
 

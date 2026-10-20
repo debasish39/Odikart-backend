@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import crypto from "crypto";
 
@@ -2668,6 +2667,29 @@ export const updateOrderStatus = async (req, res) => {
 
     if (status === "Delivered") {
       const deliveryDate = new Date();
+
+      /* =====================================================
+         COD PAYMENT CONFIRMATION
+         For Cash on Delivery, mark payment as Paid only when
+         the order is marked Delivered. This records that cash
+         was collected at the doorstep; earlier order stages
+         must not mark COD as paid.
+      ===================================================== */
+      const paymentMethod = String(order.payment?.method || "")
+        .trim()
+        .toLowerCase();
+
+      if (paymentMethod === "cod" || paymentMethod === "cash on delivery") {
+        order.payment = order.payment || {};
+        order.payment.status = "Paid";
+        order.payment.paymentDate = order.payment.paymentDate || deliveryDate;
+        order.payment.paymentFailureReason = "";
+
+        // Preserve an existing transaction reference; COD has no gateway ID.
+        if (!order.payment.transactionId) {
+          order.payment.transactionId = `COD-${order.orderNumber || order._id}`;
+        }
+      }
 
       // Keep canonical and legacy delivery date fields synchronized.
       order.deliveredAt = deliveryDate;
