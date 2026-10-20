@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 import crypto from "crypto";
 
@@ -124,6 +125,32 @@ const appendStatusHistory = (order, status, updatedBy, remark = "") => {
     updatedBy,
     remark,
   });
+};
+
+/**
+ * Resolve the original delivery date for return-window checks.
+ * Older orders may have the date in shipping/timeline/statusHistory
+ * rather than the canonical top-level deliveredAt field.
+ */
+const getOrderDeliveryDate = (order) => {
+  const candidates = [
+    order?.deliveredAt,
+    order?.shipping?.deliveredAt,
+    order?.timeline?.deliveredAt,
+    ...(Array.isArray(order?.statusHistory)
+      ? order.statusHistory
+          .filter((entry) => entry?.status === "Delivered")
+          .map((entry) => entry?.date)
+      : []),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const date = new Date(candidate);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  return null;
 };
 
 /* =========================================================
@@ -2611,15 +2638,18 @@ export const updateOrderStatus = async (req, res) => {
     }
 
     if (status === "Return Requested") {
-      if (!order.deliveredAt) {
+      const deliveryDate = getOrderDeliveryDate(order);
+
+      if (!deliveryDate) {
         return res.status(400).json({
           success: false,
-          message: "Delivery date is missing",
+          message:
+            "Delivery date is missing. Please contact Odikart support to verify this order's delivery record.",
         });
       }
 
       const returnDeadline =
-        new Date(order.deliveredAt).getTime() +
+        deliveryDate.getTime() +
         REFERRAL_RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
       if (Date.now() > returnDeadline) {
@@ -2637,7 +2667,16 @@ export const updateOrderStatus = async (req, res) => {
     order.status = status;
 
     if (status === "Delivered") {
-      order.deliveredAt = new Date();
+      const deliveryDate = new Date();
+
+      // Keep canonical and legacy delivery date fields synchronized.
+      order.deliveredAt = deliveryDate;
+
+      if (!order.shipping) order.shipping = {};
+      order.shipping.deliveredAt = deliveryDate;
+
+      if (!order.timeline) order.timeline = {};
+      order.timeline.deliveredAt = deliveryDate;
 
       /*
         Delivery completed:
@@ -3486,15 +3525,32 @@ export const requestReturn = async (req, res) => {
        configured return window from delivery.
     ===================================================== */
 
-    if (!order.deliveredAt) {
+    const deliveryDate = getOrderDeliveryDate(order);
+
+    if (!deliveryDate) {
       return res.status(400).json({
         success: false,
-        message: "Delivery date is missing",
+        message:
+          "Delivery date is missing. Please contact Odikart support to verify this order's delivery record.",
       });
     }
 
+    // Backfill the canonical field when an older order only has a
+    // delivery timestamp in shipping, timeline, or statusHistory.
+    if (!order.deliveredAt) {
+      order.deliveredAt = deliveryDate;
+    }
+    if (!order.shipping) order.shipping = {};
+    if (!order.shipping.deliveredAt) {
+      order.shipping.deliveredAt = deliveryDate;
+    }
+    if (!order.timeline) order.timeline = {};
+    if (!order.timeline.deliveredAt) {
+      order.timeline.deliveredAt = deliveryDate;
+    }
+
     const returnDeadline =
-      new Date(order.deliveredAt).getTime() +
+      deliveryDate.getTime() +
       REFERRAL_RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
     if (Date.now() > returnDeadline) {

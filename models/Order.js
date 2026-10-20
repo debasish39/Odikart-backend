@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 const orderSchema = new mongoose.Schema(
@@ -506,6 +507,17 @@ const orderSchema = new mongoose.Schema(
 
       default: "Confirmed",
 
+      index: true,
+    },
+
+    /*
+     * Canonical delivery timestamp used by return-window eligibility.
+     * Keep shipping.deliveredAt and timeline.deliveredAt for compatibility.
+     * Update all three timestamps when an order is marked Delivered.
+     */
+    deliveredAt: {
+      type: Date,
+      default: null,
       index: true,
     },
 
