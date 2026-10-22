@@ -1492,92 +1492,141 @@ export const signinWithPassword =
    FIREBASE PHONE LOGIN
 ========================================================= */
 
-export const firebasePhoneLogin =
-  async (req, res) => {
+export const firebasePhoneLogin = async (req, res) => {
+  try {
+    // 1) Read and validate the Firebase ID token.
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "Firebase ID token is required",
+      });
+    }
 
+    const firebaseToken = authHeader.slice(7).trim();
+    if (!firebaseToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Firebase ID token is required",
+      });
+    }
+
+    const app = String(req.body?.app || "customer").trim().toLowerCase();
+    if (!["customer", "seller"].includes(app)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application",
+      });
+    }
+
+    let decodedToken;
     try {
+      decodedToken = await firebaseAuth.verifyIdToken(firebaseToken);
+    } catch (error) {
+      // Log only the error; never log the Firebase ID token itself.
+      console.error("Firebase Verify Error:", error?.code || error?.message || error);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired Firebase token",
+      });
+    }
 
-      /* =====================================
-         GET FIREBASE TOKEN
-      ===================================== */
+    const firebaseUid = decodedToken.uid;
+    const phone = decodedToken.phone_number || "";
+    const firebaseEmail = decodedToken.email || null;
+    const firebaseEmailVerified = decodedToken.email_verified === true;
 
-      const authHeader =
-        req.headers.authorization;
+    if (!firebaseUid || !phone) {
+      return res.status(401).json({
+        success: false,
+        message: "Verified Firebase user or phone number is missing",
+      });
+    }
 
+    // 2) Find by Firebase UID first, then by the verified E.164 phone.
+    // Do not filter deleted accounts out here: that could create a duplicate
+    // account for a phone number belonging to a deleted account.
+    let user = await User.findOne({ firebaseUid });
+    if (!user) {
+      user = await User.findOne({ phone });
+    }
 
-      if (
-        !authHeader ||
-        !authHeader.startsWith("Bearer ")
-      ) {
+    // 3) Reject blocked/deleted accounts before changing any fields.
+    if (user?.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: "This account has been deleted. Contact support if you believe this is a mistake.",
+      });
+    }
+    if (user?.isBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: "This account is blocked",
+      });
+    }
 
-        return res.status(401).json({
+    // 4) Never create a customer account from the seller app.
+    if (!user && app === "seller") {
+      return res.status(403).json({
+        success: false,
+        message: "No seller account is associated with this phone number. Register as a seller first.",
+      });
+    }
+
+    // 5) Check application/role before mutating an existing account.
+    if (user && app === "seller" && user.role !== "seller") {
+      return res.status(403).json({
+        success: false,
+        message: "This account is not a seller",
+      });
+    }
+    if (user && app === "customer" && user.role !== "user") {
+      return res.status(403).json({
+        success: false,
+        message: "This account cannot access the customer application.",
+        role: user.role,
+      });
+    }
+
+    if (user && app === "seller" && user.sellerStatus !== "approved") {
+      return res.status(403).json({
+        success: false,
+        message: "Seller account is not approved",
+        sellerStatus: user.sellerStatus || null,
+        sellerVerificationStatus: user.sellerInfo?.verification?.status || "pending",
+      });
+    }
+
+    // 6) If the verified phone is already linked to a different account,
+    // don't silently overwrite that account's phone/Firebase UID.
+    if (user) {
+      const phoneOwner = await User.findOne({
+        phone,
+        _id: { $ne: user._id },
+        isDeleted: { $ne: true },
+      }).select("_id");
+
+      if (phoneOwner) {
+        return res.status(409).json({
           success: false,
-          message:
-            "Firebase ID token is required",
+          message: "This phone number is already associated with another account.",
         });
-
       }
+    }
 
+    let isNewUser = false;
 
-      const firebaseToken =
-        authHeader
-          .substring(7)
-          .trim();
-
-
-      if (!firebaseToken) {
-
-        return res.status(401).json({
-          success: false,
-          message:
-            "Firebase token is required",
-        });
-
-      }
-
-
-      /* =====================================
-         APPLICATION MODE
-      ===================================== */
-
-      const app =
-        String(
-          req.body?.app || "customer"
-        )
-          .trim()
-          .toLowerCase();
-
-
-      if (
-        !["customer", "seller"].includes(app)
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid application",
-        });
-
-      }
-
-
-      /* =====================================
-         REFERRAL CODE
-      ===================================== */
-
-      const referralCode = normalizeString(
-        req.body?.referralCode,
-        30
-      ).toUpperCase();
-
+    // 7) Create only a new customer account.
+    if (!user) {
+      const referralCode = normalizeString(req.body?.referralCode, 30).toUpperCase();
       let referrer = null;
 
       if (referralCode) {
         referrer = await User.findOne({
           "referral.referralCode": referralCode,
           role: "user",
-          isBlocked: false,
-          isDeleted: false,
+          isBlocked: { $ne: true },
+          isDeleted: { $ne: true },
         });
 
         if (!referrer) {
@@ -1588,307 +1637,60 @@ export const firebasePhoneLogin =
         }
       }
 
-
-      /* =====================================
-         VERIFY FIREBASE TOKEN
-      ===================================== */
-
-      let decodedToken;
-
-      try {
-
-        decodedToken =
-          await firebaseAuth.verifyIdToken(
-            firebaseToken
-          );
-
-      } catch (error) {
-
-        console.error(
-          "Firebase Verify Error:",
-          error
-        );
-
-        return res.status(401).json({
-          success: false,
-          message:
-            "Invalid Firebase token",
-        });
-
-      }
-
-
-      const firebaseUid =
-        decodedToken.uid;
-
-      const phone =
-        decodedToken.phone_number || "";
-
-      const firebaseEmail =
-        decodedToken.email || null;
-
-
-      if (!firebaseUid) {
-
-        return res.status(401).json({
-          success: false,
-          message:
-            "Firebase UID missing",
-        });
-
-      }
-
-
-      if (!phone) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Verified phone number not found",
-        });
-
-      }
-
-
-      /* =====================================
-         FIND USER BY FIREBASE UID
-      ===================================== */
-
-      let user =
-        await User.findOne({
-          firebaseUid,
-        });
-
-
-      /* =====================================
-         FALLBACK BY PHONE
-      ===================================== */
-
-      if (!user) {
-
-        user =
-          await User.findOne({
-            phone,
-            isDeleted: false,
-          });
-
-      }
-
-
-      let isNewUser = false;
-
-
-      /* =====================================
-         CREATE NEW CUSTOMER
-      ===================================== */
-
-      if (!user) {
-
-        user =
-          await User.create({
-
-            firebaseUid,
-
-            phone,
-
-            email:
-              firebaseEmail,
-
-            provider:
-              "firebase",
-
-            firstName: "",
-
-            lastName: "",
-
-            password: null,
-
-            role: "user",
-
-            activeMode:
-              "customer",
-
-            isVerified: true,
-
-            isPhoneVerified: true,
-
-            isEmailVerified:
-              Boolean(firebaseEmail),
-
-            lastLogin:
-              new Date(),
-
-            referral: {
-              referralCode: generateReferralCode(),
-              referredBy: referrer?._id || null,
-            },
-
-          });
-
-        isNewUser = true;
-
-        await createWelcomeNotification(user);
-
-      }
-
-
-      /* =====================================
-         EXISTING USER
-      ===================================== */
-
-      else {
-
-        if (user.isDeleted) {
-
-          return res.status(403).json({
-            success: false,
-            message:
-              "This account has been deleted",
-          });
-
-        }
-
-
-        if (user.isBlocked) {
-
-          return res.status(403).json({
-            success: false,
-            message:
-              "This account is blocked",
-          });
-
-        }
-
-
-        user.firebaseUid =
-          firebaseUid;
-
-        user.phone =
-          phone;
-
-        user.provider =
-          "firebase";
-
-        user.isVerified =
-          true;
-
-        user.isPhoneVerified =
-          true;
-
-        user.lastLogin =
-          new Date();
-
-        await user.save();
-
-      }
-
-
-      /* =====================================
-         SELLER LOGIN
-      ===================================== */
-
-      if (app === "seller") {
-
-        if (user.role !== "seller") {
-
-          return res.status(403).json({
-
-            success: false,
-
-            message:
-              "This account is not a seller",
-
-          });
-
-        }
-
-
-        if (
-          user.sellerStatus !== "approved"
-        ) {
-
-          return res.status(403).json({
-
-            success: false,
-
-            message:
-              "Seller account is not approved",
-
-            sellerStatus:
-              user.sellerStatus,
-
-            sellerVerificationStatus:
-              user.sellerInfo
-                ?.verification
-                ?.status || "pending",
-
-          });
-
-        }
-
-
-        user.activeMode =
-          "seller";
-
-      }
-
-      else {
-
-        user.activeMode =
-          "customer";
-
-      }
-
-
-      await user.save();
-
-
-      /* =====================================
-         GENERATE ODIKART JWT
-      ===================================== */
-
-      const token =
-        generateToken(
-          user,
-          app
-        );
-
-
-      /* =====================================
-         SUCCESS RESPONSE
-      ===================================== */
-
-      return res.status(200).json({
-
-        success: true,
-
-        message:
-          "Phone login successful",
-
-        token,
-
-        isNewUser,
-
+      user = await User.create({
         firebaseUid,
-
-        user:
-          safeAuthResponse(user),
-
+        phone,
+        email: firebaseEmail,
+        provider: "firebase",
+        firstName: "",
+        lastName: "",
+        password: null,
+        role: "user",
+        activeMode: "customer",
+        isVerified: true,
+        isPhoneVerified: true,
+        isEmailVerified: Boolean(firebaseEmail && firebaseEmailVerified),
+        lastLogin: new Date(),
+        referral: {
+          referralCode: generateReferralCode(),
+          referredBy: referrer?._id || null,
+        },
       });
 
+      isNewUser = true;
+      await createWelcomeNotification(user);
+    } else {
+      // Attach Firebase identity only after the account checks above pass.
+      // Do not overwrite an existing account's email from an unverified claim.
+      user.firebaseUid = firebaseUid;
+      user.phone = phone;
+      user.provider = "firebase";
+      user.isVerified = true;
+      user.isPhoneVerified = true;
+      if (firebaseEmail && firebaseEmailVerified && !user.email) {
+        user.email = String(firebaseEmail).trim().toLowerCase();
+        user.isEmailVerified = true;
+      }
+      user.lastLogin = new Date();
     }
 
-    catch (error) {
+    user.activeMode = app === "seller" ? "seller" : "customer";
+    await user.save();
 
-      return unexpectedError(
-        res,
-        error,
-        "Firebase Phone Login Error"
-      );
+    const token = generateToken(user, app);
+    return res.status(200).json({
+      success: true,
+      message: "Phone login successful",
+      token,
+      isNewUser,
+      firebaseUid,
+      user: safeAuthResponse(user),
+    });
+  } catch (error) {
+    return unexpectedError(res, error, "Firebase Phone Login Error");
+  }
+};
 
-    }
-
-  };
   /* =========================================================
    COMPLETE CUSTOMER PROFILE
    Used only after Firebase Phone Signup
