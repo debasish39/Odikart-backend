@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
@@ -23,6 +24,31 @@ const MAX_PHONE_LENGTH = 20;
 const MAX_EMAIL_LENGTH = 254;
 
 const MAX_OTP_ATTEMPTS = 5;
+
+/* =========================================================
+   AUTH DEBUGGING
+   Enabled in development, or explicitly with AUTH_DEBUG=true.
+   Never log OTPs, passwords, Firebase ID tokens, or JWTs.
+========================================================= */
+const AUTH_DEBUG_ENABLED =
+  process.env.NODE_ENV !== "production" ||
+  process.env.AUTH_DEBUG === "true";
+
+const authDebug = (event, details = {}) => {
+  if (!AUTH_DEBUG_ENABLED) return;
+  console.info("[AUTH DEBUG]", {
+    timestamp: new Date().toISOString(),
+    event,
+    ...details,
+  });
+};
+
+const maskPhone = (phone = "") => {
+  const value = String(phone);
+  if (value.length < 5) return value ? "***" : "(missing)";
+  return `${value.slice(0, 3)}${"*".repeat(Math.max(0, value.length - 5))}${value.slice(-2)}`;
+};
+
 
 /*
   OTP attempts are stored in-memory here only as an
@@ -1493,10 +1519,23 @@ export const signinWithPassword =
 ========================================================= */
 
 export const firebasePhoneLogin = async (req, res) => {
+  const requestStartedAt = Date.now();
+  authDebug("firebase_phone_login.request_received", {
+    method: req.method,
+    path: req.originalUrl?.split("?")[0] || req.path,
+    app: String(req.body?.app || "customer").trim().toLowerCase(),
+    hasAuthorizationHeader: Boolean(req.headers.authorization),
+    hasBearerPrefix: String(req.headers.authorization || "").startsWith("Bearer "),
+  });
+
   try {
     // 1) Read and validate the Firebase ID token.
     const authHeader = req.headers.authorization || "";
     if (!authHeader.startsWith("Bearer ")) {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "authorization_header",
+        reason: "missing_bearer_token",
+      });
       return res.status(401).json({
         success: false,
         message: "Firebase ID token is required",
@@ -1505,6 +1544,10 @@ export const firebasePhoneLogin = async (req, res) => {
 
     const firebaseToken = authHeader.slice(7).trim();
     if (!firebaseToken) {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "authorization_header",
+        reason: "empty_bearer_token",
+      });
       return res.status(401).json({
         success: false,
         message: "Firebase ID token is required",
@@ -1513,6 +1556,10 @@ export const firebasePhoneLogin = async (req, res) => {
 
     const app = String(req.body?.app || "customer").trim().toLowerCase();
     if (!["customer", "seller"].includes(app)) {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "application_validation",
+        app,
+      });
       return res.status(400).json({
         success: false,
         message: "Invalid application",
@@ -1521,10 +1568,21 @@ export const firebasePhoneLogin = async (req, res) => {
 
     let decodedToken;
     try {
+      authDebug("firebase_phone_login.firebase_token_verification_started", { app });
       decodedToken = await firebaseAuth.verifyIdToken(firebaseToken);
+      authDebug("firebase_phone_login.firebase_token_verified", {
+        app,
+        hasUid: Boolean(decodedToken?.uid),
+        hasPhoneClaim: Boolean(decodedToken?.phone_number),
+        hasEmailClaim: Boolean(decodedToken?.email),
+        emailVerifiedClaim: decodedToken?.email_verified === true,
+      });
     } catch (error) {
-      // Log only the error; never log the Firebase ID token itself.
-      console.error("Firebase Verify Error:", error?.code || error?.message || error);
+      // Never log the Firebase ID token itself.
+      console.error("[AUTH DEBUG] Firebase token verification failed:", {
+        code: error?.code || null,
+        message: error?.message || "Unknown Firebase Admin verification error",
+      });
       return res.status(401).json({
         success: false,
         message: "Invalid or expired Firebase token",
@@ -1537,28 +1595,51 @@ export const firebasePhoneLogin = async (req, res) => {
     const firebaseEmailVerified = decodedToken.email_verified === true;
 
     if (!firebaseUid || !phone) {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "decoded_claim_validation",
+        hasUid: Boolean(firebaseUid),
+        hasPhone: Boolean(phone),
+      });
       return res.status(401).json({
         success: false,
         message: "Verified Firebase user or phone number is missing",
       });
     }
 
+    authDebug("firebase_phone_login.account_lookup_started", {
+      app,
+      maskedPhone: maskPhone(phone),
+    });
+
     // 2) Find by Firebase UID first, then by the verified E.164 phone.
     // Do not filter deleted accounts out here: that could create a duplicate
     // account for a phone number belonging to a deleted account.
     let user = await User.findOne({ firebaseUid });
+    let matchedBy = user ? "firebaseUid" : "phone";
     if (!user) {
       user = await User.findOne({ phone });
     }
 
+    authDebug("firebase_phone_login.account_lookup_completed", {
+      app,
+      foundUser: Boolean(user),
+      matchedBy: user ? matchedBy : "none",
+      role: user?.role || null,
+      sellerStatus: user?.sellerStatus || null,
+      isBlocked: Boolean(user?.isBlocked),
+      isDeleted: Boolean(user?.isDeleted),
+    });
+
     // 3) Reject blocked/deleted accounts before changing any fields.
     if (user?.isDeleted) {
+      authDebug("firebase_phone_login.rejected", { stage: "account_status", reason: "deleted" });
       return res.status(403).json({
         success: false,
         message: "This account has been deleted. Contact support if you believe this is a mistake.",
       });
     }
     if (user?.isBlocked) {
+      authDebug("firebase_phone_login.rejected", { stage: "account_status", reason: "blocked" });
       return res.status(403).json({
         success: false,
         message: "This account is blocked",
@@ -1567,6 +1648,7 @@ export const firebasePhoneLogin = async (req, res) => {
 
     // 4) Never create a customer account from the seller app.
     if (!user && app === "seller") {
+      authDebug("firebase_phone_login.rejected", { stage: "seller_account_check", reason: "no_seller_account" });
       return res.status(403).json({
         success: false,
         message: "No seller account is associated with this phone number. Register as a seller first.",
@@ -1575,12 +1657,22 @@ export const firebasePhoneLogin = async (req, res) => {
 
     // 5) Check application/role before mutating an existing account.
     if (user && app === "seller" && user.role !== "seller") {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "role_check",
+        app,
+        role: user.role,
+      });
       return res.status(403).json({
         success: false,
         message: "This account is not a seller",
       });
     }
     if (user && app === "customer" && user.role !== "user") {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "role_check",
+        app,
+        role: user.role,
+      });
       return res.status(403).json({
         success: false,
         message: "This account cannot access the customer application.",
@@ -1589,6 +1681,11 @@ export const firebasePhoneLogin = async (req, res) => {
     }
 
     if (user && app === "seller" && user.sellerStatus !== "approved") {
+      authDebug("firebase_phone_login.rejected", {
+        stage: "seller_approval_check",
+        sellerStatus: user.sellerStatus || null,
+        sellerVerificationStatus: user.sellerInfo?.verification?.status || "pending",
+      });
       return res.status(403).json({
         success: false,
         message: "Seller account is not approved",
@@ -1607,6 +1704,10 @@ export const firebasePhoneLogin = async (req, res) => {
       }).select("_id");
 
       if (phoneOwner) {
+        authDebug("firebase_phone_login.rejected", {
+          stage: "phone_uniqueness_check",
+          reason: "phone_linked_to_another_account",
+        });
         return res.status(409).json({
           success: false,
           message: "This phone number is already associated with another account.",
@@ -1630,12 +1731,21 @@ export const firebasePhoneLogin = async (req, res) => {
         });
 
         if (!referrer) {
+          authDebug("firebase_phone_login.rejected", {
+            stage: "referral_validation",
+            reason: "invalid_referral_code",
+          });
           return res.status(400).json({
             success: false,
             message: "Invalid referral code",
           });
         }
       }
+
+      authDebug("firebase_phone_login.new_customer_creation_started", {
+        app,
+        hasReferralCode: Boolean(referralCode),
+      });
 
       user = await User.create({
         firebaseUid,
@@ -1659,6 +1769,10 @@ export const firebasePhoneLogin = async (req, res) => {
 
       isNewUser = true;
       await createWelcomeNotification(user);
+      authDebug("firebase_phone_login.new_customer_created", {
+        isNewUser,
+        role: user.role,
+      });
     } else {
       // Attach Firebase identity only after the account checks above pass.
       // Do not overwrite an existing account's email from an unverified claim.
@@ -1672,12 +1786,26 @@ export const firebasePhoneLogin = async (req, res) => {
         user.isEmailVerified = true;
       }
       user.lastLogin = new Date();
+      authDebug("firebase_phone_login.existing_account_updated", {
+        role: user.role,
+        emailClaimPresent: Boolean(firebaseEmail),
+        emailClaimVerified: firebaseEmailVerified,
+      });
     }
 
     user.activeMode = app === "seller" ? "seller" : "customer";
     await user.save();
+    authDebug("firebase_phone_login.user_saved", { app, role: user.role });
 
     const token = generateToken(user, app);
+    authDebug("firebase_phone_login.success", {
+      app,
+      isNewUser,
+      role: user.role,
+      durationMs: Date.now() - requestStartedAt,
+      tokenGenerated: Boolean(token),
+    });
+
     return res.status(200).json({
       success: true,
       message: "Phone login successful",
@@ -1687,6 +1815,11 @@ export const firebasePhoneLogin = async (req, res) => {
       user: safeAuthResponse(user),
     });
   } catch (error) {
+    console.error("[AUTH DEBUG] Firebase Phone Login failed:", {
+      code: error?.code || null,
+      name: error?.name || null,
+      message: error?.message || "Unknown error",
+    });
     return unexpectedError(res, error, "Firebase Phone Login Error");
   }
 };
@@ -1697,6 +1830,15 @@ export const firebasePhoneLogin = async (req, res) => {
 ========================================================= */
 
 export const completeProfile = async (req, res) => {
+  authDebug("complete_profile.request_received", {
+    method: req.method,
+    path: req.originalUrl?.split("?")[0] || req.path,
+    authenticatedUserIdPresent: Boolean(req.user?._id || req.user?.id),
+    firstNamePresent: Boolean(String(req.body?.firstName ?? "").trim()),
+    lastNamePresent: Boolean(String(req.body?.lastName ?? "").trim()),
+    emailPresent: Boolean(String(req.body?.email ?? "").trim()),
+  });
+
   try {
     /* =====================================================
        AUTHENTICATED USER
@@ -1719,6 +1861,14 @@ export const completeProfile = async (req, res) => {
 
     const user =
       await User.findById(userId);
+
+    authDebug("complete_profile.user_lookup_completed", {
+      foundUser: Boolean(user),
+      role: user?.role || null,
+      provider: user?.provider || null,
+      isBlocked: Boolean(user?.isBlocked),
+      isDeleted: Boolean(user?.isDeleted),
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -1886,6 +2036,12 @@ export const completeProfile = async (req, res) => {
 
     await user.save();
 
+    authDebug("complete_profile.user_saved", {
+      role: user.role,
+      phoneVerified: Boolean(user.isPhoneVerified),
+      emailProvided: Boolean(email),
+    });
+
     /* =====================================================
        GENERATE FINAL ODIKART JWT
     ===================================================== */
@@ -1907,6 +2063,11 @@ export const completeProfile = async (req, res) => {
        SUCCESS
     ===================================================== */
 
+    authDebug("complete_profile.success", {
+      role: responseUser?.role || user.role,
+      tokenGenerated: Boolean(token),
+    });
+
     return res.status(200).json({
       success: true,
 
@@ -1922,6 +2083,11 @@ export const completeProfile = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("[AUTH DEBUG] Complete customer profile failed:", {
+      code: error?.code || null,
+      name: error?.name || null,
+      message: error?.message || "Unknown error",
+    });
 
     return unexpectedError(
       res,
