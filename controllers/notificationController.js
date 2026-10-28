@@ -1,3 +1,5 @@
+
+
 import mongoose from "mongoose";
 
 import Notification from "../models/Notification.js";
@@ -5,7 +7,7 @@ import User from "../models/User.js";
 import DeviceToken from "../models/DeviceToken.js";
 import {
   createAndSendNotification,
-  createNotification,
+  createNotification as createInAppNotification,
   sendPushNotification,
 } from "../utils/notificationService.js";
 
@@ -23,6 +25,60 @@ const isAdmin = (req) => {
   return req.user?.role === "admin";
 };
 
+/* =========================================================
+   NOTIFICATION DEBUGGING
+   Enable with DEBUG_NOTIFICATIONS=true in backend .env.
+   Never log authorization headers, tokens, or message contents.
+========================================================= */
+
+const notificationDebugEnabled =
+  process.env.DEBUG_NOTIFICATIONS === "true";
+
+const debugNotification = (label, req, extra = {}) => {
+  if (!notificationDebugEnabled) return;
+
+  console.log("[NOTIFICATIONS DEBUG]", {
+    label,
+    method: req?.method,
+    path: req?.originalUrl || req?.url,
+    userId: String(getUserId(req) || ""),
+    role: req?.user?.role || "unknown",
+    params: req?.params || {},
+    query: req?.query || {},
+    bodyKeys: Object.keys(req?.body || {}),
+    ...extra,
+  });
+};
+
+const notificationError = (label, error, req) => {
+  console.error(`[NOTIFICATIONS ERROR] ${label}`, {
+    path: req?.originalUrl || req?.url,
+    method: req?.method,
+    userId: String(getUserId(req) || ""),
+    role: req?.user?.role || "unknown",
+    name: error?.name,
+    message: error?.message,
+    stack: error?.stack,
+  });
+};
+
+const debugErrorResponse = (res, error, fallbackMessage, status = 500) => {
+  const response = {
+    success: false,
+    message: fallbackMessage,
+  };
+
+  // Include diagnostic detail only in non-production environments.
+  if (process.env.NODE_ENV !== "production") {
+    response.debug = {
+      name: error?.name || "Error",
+      message: error?.message || "Unknown error",
+    };
+  }
+
+  return res.status(status).json(response);
+};
+
 
 /* =========================================================
    GET MY NOTIFICATIONS
@@ -33,6 +89,7 @@ export const getMyNotifications = async (
   res
 ) => {
   try {
+    debugNotification("getMyNotifications", req);
     const userId = getUserId(req);
 
     if (!userId) {
@@ -117,6 +174,7 @@ export const getUnreadCount = async (
   res
 ) => {
   try {
+    debugNotification("getUnreadCount", req);
     const userId = getUserId(req);
 
     if (!userId) {
@@ -182,6 +240,7 @@ export const markAsRead = async (
   res
 ) => {
   try {
+    debugNotification("markAsRead", req);
     const userId = getUserId(req);
 
     const { id } = req.params;
@@ -249,6 +308,7 @@ export const markAllAsRead = async (
   res
 ) => {
   try {
+    debugNotification("markAllAsRead", req);
     const userId = getUserId(req);
 
     await Notification.updateMany(
@@ -294,6 +354,7 @@ export const deleteNotification = async (
   res
 ) => {
   try {
+    debugNotification("deleteNotification", req);
     const userId = getUserId(req);
 
     const { id } = req.params;
@@ -347,6 +408,7 @@ export const deleteNotification = async (
 export const updateNotificationSettings =
   async (req, res) => {
     try {
+    debugNotification("updateNotificationSettings", req);
       const userId = getUserId(req);
 
       const allowed = [
@@ -435,6 +497,7 @@ export const updateNotificationSettings =
 export const sendNotificationToUser =
   async (req, res) => {
     try {
+    debugNotification("sendNotificationToUser", req);
       if (!isAdmin(req)) {
         return res.status(403).json({
           success: false,
@@ -542,6 +605,7 @@ return res.status(201).json({
 
 export const registerDevice = async (req, res) => {
   try {
+    debugNotification("registerDevice", req);
     const userId = getUserId(req);
     const { token, platform = "android" } = req.body;
 
@@ -614,6 +678,7 @@ export const registerDevice = async (req, res) => {
 
 export const unregisterDevice = async (req, res) => {
   try {
+    debugNotification("unregisterDevice", req);
     const userId = getUserId(req);
     const { token } = req.body;
 
@@ -656,8 +721,11 @@ export const unregisterDevice = async (req, res) => {
 ========================================================= */
 
 
+
 export const sendPromotionToAllCustomers = async (req, res) => {
   try {
+    debugNotification("sendPromotionToAllCustomers", req);
+
     if (!isAdmin(req)) {
       return res.status(403).json({
         success: false,
@@ -665,16 +733,50 @@ export const sendPromotionToAllCustomers = async (req, res) => {
       });
     }
 
-    const { title, message, link = "/" ,imageUrl="",} = req.body;
+    const {
+      title,
+      message = "",
+      link = "/",
+      imageUrl = "",
+    } = req.body || {};
 
-    if (
-      !String(title || "").trim() ||
-      !String(message || "").trim()
-    ) {
+    const cleanTitle = String(title || "").trim();
+    const cleanMessage = String(message || "").trim();
+    const cleanLink = String(link || "/").trim();
+    const cleanImageUrl = String(imageUrl || "").trim();
+
+    // Only the title is mandatory.
+    if (!cleanTitle) {
       return res.status(400).json({
         success: false,
-        message: "Title and message are required",
+        message: "Title is required",
       });
+    }
+
+    // If the admin leaves the message empty, use a fallback.
+    // This helps when the Notification schema requires a message.
+    const finalMessage =
+      cleanMessage || "Tap to view this offer.";
+
+    // If supplied, the image must be a valid HTTPS URL.
+    if (cleanImageUrl) {
+      let parsedImageUrl;
+
+      try {
+        parsedImageUrl = new URL(cleanImageUrl);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid image URL",
+        });
+      }
+
+      if (parsedImageUrl.protocol !== "https:") {
+        return res.status(400).json({
+          success: false,
+          message: "Image URL must use HTTPS",
+        });
+      }
     }
 
     const customers = await User.find({
@@ -698,21 +800,22 @@ export const sendPromotionToAllCustomers = async (req, res) => {
     for (const customer of customers) {
       const settings = customer.notificationSettings || {};
 
-      // Respect the customer's promotional preference for both
-      // in-app and push promotions.
+      // Respect promotional preferences.
       if (settings.promotions === false) {
         result.skipped++;
         continue;
       }
 
       try {
+        // Create the in-app notification when enabled.
         if (settings.inApp !== false) {
-          const notification = await createNotification({
+          const notification = await createInAppNotification({
             userId: customer._id,
             type: "promotion",
-            title: String(title).trim(),
-            message: String(message).trim(),
-            link: String(link).trim(),
+            title: cleanTitle,
+            message: finalMessage,
+            link: cleanLink,
+            imageUrl: cleanImageUrl,
             isPromotional: true,
             createdBy: getUserId(req),
           });
@@ -722,20 +825,21 @@ export const sendPromotionToAllCustomers = async (req, res) => {
           }
         }
 
+        // Send push notification to registered devices.
         const pushResult = await sendPushNotification({
           userId: customer._id,
           type: "promotion",
-          title: String(title).trim(),
-          message: String(message).trim(),
-          link: String(link).trim(),
+          title: cleanTitle,
+          message: finalMessage,
+          link: cleanLink,
+          imageUrl: cleanImageUrl,
           isPromotional: true,
-          imageUrl,
         });
 
-        result.pushSent += pushResult.sent || 0;
-        result.pushFailed += pushResult.failed || 0;
+        result.pushSent += pushResult?.sent || 0;
+        result.pushFailed += pushResult?.failed || 0;
 
-        if (pushResult.skipped) {
+        if (pushResult?.skipped) {
           result.pushSkipped++;
         }
       } catch (error) {
@@ -752,15 +856,357 @@ export const sendPromotionToAllCustomers = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Promotion processing completed",
+      imageIncluded: Boolean(cleanImageUrl),
       ...result,
     });
   } catch (error) {
-    console.error("Bulk Promotion Error:", error);
+    notificationError(
+      "sendPromotionToAllCustomers",
+      error,
+      req
+    );
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to process promotion",
-    });
+    return debugErrorResponse(
+      res,
+      error,
+      "Failed to process promotion",
+      500
+    );
   }
 };
 
+/* =========================================================
+   ADMIN CRUD HELPERS
+   These endpoints are intended for admin-only routes.
+========================================================= */
+
+const validateNotificationId = (id) =>
+  mongoose.Types.ObjectId.isValid(id);
+
+const getNotificationPayload = (body = {}) => {
+  const payload = {};
+
+  if (typeof body.title === "string" && body.title.trim()) {
+    payload.title = body.title.trim();
+  }
+
+  if (typeof body.message === "string" && body.message.trim()) {
+    payload.message = body.message.trim();
+  }
+
+  if (typeof body.type === "string" && body.type.trim()) {
+    payload.type = body.type.trim();
+  }
+
+  if (typeof body.link === "string") {
+    payload.link = body.link.trim();
+  }
+
+  if (typeof body.isPromotional === "boolean") {
+    payload.isPromotional = body.isPromotional;
+  }
+
+  return payload;
+};
+
+/* =========================================================
+   ADMIN: CREATE NOTIFICATION FOR ONE CUSTOMER
+   POST /api/notifications
+========================================================= */
+
+export const createNotification = async (req, res) => {
+  try {
+    debugNotification("createNotification", req);
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const {
+      userId,
+      title,
+      message,
+      type = "announcement",
+      link = "",
+      orderId = null,
+      isPromotional = false,
+      imageUrl = "",
+    } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid userId is required",
+      });
+    }
+
+    if (!String(title || "").trim() || !String(message || "").trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Title and message are required",
+      });
+    }
+
+    const customer = await User.findById(userId)
+      .select("_id role isBlocked isDeleted notificationSettings")
+      .lean();
+
+    if (!customer || customer.role !== "user") {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found",
+      });
+    }
+
+    if (customer.isBlocked || customer.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer account is unavailable",
+      });
+    }
+
+    const notification = await createAndSendNotification({
+      userId: customer._id,
+      title: String(title).trim(),
+      message: String(message).trim(),
+      type,
+      link: String(link || "").trim(),
+      orderId,
+      isPromotional: Boolean(isPromotional),
+      imageUrl: String(imageUrl || "").trim(),
+      createdBy: getUserId(req),
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: notification
+        ? "Notification created and processed"
+        : "Notification processed; no in-app notification was created",
+      notification: notification || null,
+    });
+  } catch (error) {
+    notificationError("createNotification", error, req);
+    return debugErrorResponse(res, error, "Failed to create notification", 500);
+  }
+};
+
+/* =========================================================
+   ADMIN: GET ALL NOTIFICATIONS
+   GET /api/notifications/admin/all
+========================================================= */
+
+export const getAllNotificationsForAdmin = async (req, res) => {
+  try {
+    debugNotification("getAllNotificationsForAdmin", req);
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+
+    if (req.query.userId) {
+      if (!mongoose.Types.ObjectId.isValid(req.query.userId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid userId",
+        });
+      }
+      filter.userId = req.query.userId;
+    }
+
+    if (req.query.type) {
+      filter.type = String(req.query.type);
+    }
+
+    if (req.query.isRead === "true") filter.isRead = true;
+    if (req.query.isRead === "false") filter.isRead = false;
+
+    if (req.query.isPromotional === "true") filter.isPromotional = true;
+    if (req.query.isPromotional === "false") filter.isPromotional = false;
+
+    const [notifications, total] = await Promise.all([
+      Notification.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Notification.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      notifications,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    notificationError("getAllNotificationsForAdmin", error, req);
+    return debugErrorResponse(res, error, "Failed to fetch notifications", 500);
+  }
+};
+
+/* =========================================================
+   ADMIN: GET ONE NOTIFICATION
+   GET /api/notifications/admin/:id
+========================================================= */
+
+export const getNotificationById = async (req, res) => {
+  try {
+    debugNotification("getNotificationById", req);
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!validateNotificationId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification ID",
+      });
+    }
+
+    const notification = await Notification.findById(id).lean();
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      notification,
+    });
+  } catch (error) {
+    notificationError("getNotificationById", error, req);
+    return debugErrorResponse(res, error, "Failed to fetch notification", 500);
+  }
+};
+
+/* =========================================================
+   ADMIN: UPDATE NOTIFICATION DETAILS
+   PATCH /api/notifications/admin/:id
+========================================================= */
+
+export const updateNotification = async (req, res) => {
+  try {
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!validateNotificationId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification ID",
+      });
+    }
+
+    const update = getNotificationPayload(req.body);
+
+    if (typeof req.body?.isRead === "boolean") {
+      update.isRead = req.body.isRead;
+      update.readAt = req.body.isRead ? new Date() : null;
+    }
+
+    if (!Object.keys(update).length) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid notification fields supplied",
+      });
+    }
+
+    const notification = await Notification.findByIdAndUpdate(
+      id,
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification updated successfully",
+      notification,
+    });
+  } catch (error) {
+    notificationError("updateNotification", error, req);
+    return debugErrorResponse(
+      res,
+      error,
+      error?.name === "ValidationError" ? error.message : "Failed to update notification",
+      error?.name === "ValidationError" ? 400 : 500
+    );
+  }
+};
+
+/* =========================================================
+   ADMIN: DELETE ANY NOTIFICATION
+   DELETE /api/notifications/admin/:id
+========================================================= */
+
+export const deleteNotificationByAdmin = async (req, res) => {
+  try {
+    debugNotification("deleteNotificationByAdmin", req);
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!validateNotificationId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification ID",
+      });
+    }
+
+    const notification = await Notification.findByIdAndDelete(id);
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification deleted successfully",
+      deletedId: id,
+    });
+  } catch (error) {
+    notificationError("deleteNotificationByAdmin", error, req);
+    return debugErrorResponse(res, error, "Failed to delete notification", 500);
+  }
+};

@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 import crypto from "crypto";
 
@@ -16,6 +17,7 @@ import { generateTrackingNumber } from "../utils/generateTrackingNumber.js";
 import Referral from "../models/Referral.js";
 import { processPendingReferralRewards } from "../utils/referralRewardService.js";
 import { createOrderNotification } from "../utils/notificationService.js";
+import { notifyAdminsSafely } from "../utils/adminNotificationService.js";
 /* =========================================================
    CUSTOM ORDER VALIDATION ERROR
 ========================================================= */
@@ -909,6 +911,18 @@ const finalItemSubtotal = itemSubtotal;
     ===================================================== */
 
     const savedOrder = await order.save();
+
+    /* =====================================================
+       27. ADMIN IN-APP + ANDROID PUSH NOTIFICATION
+       Notification errors must never undo a saved order.
+    ===================================================== */
+    await notifyAdminsSafely({
+      type: "order",
+      title: "New order received",
+      message: `Order ${savedOrder.orderNumber} was created. Total: ₹${money(savedOrder.pricing?.total)}. Payment: ${savedOrder.payment?.method || "COD"} (${savedOrder.payment?.status || "Pending"}).`,
+      orderId: savedOrder._id,
+      link: `/admin/orders/${savedOrder._id}`,
+    });
 
     //
     /* =====================================================
