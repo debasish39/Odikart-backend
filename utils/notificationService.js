@@ -16,8 +16,7 @@ const MARKETING_TYPES = new Set([
   "announcement",
 ]);
 
-// Maps notification types to optional per-type user settings.
-// These settings are respected when present and not false.
+// Maps notification types to user notification preferences.
 const TYPE_PREFERENCES = {
   promotion: "promotions",
   price_drop: "priceDropAlerts",
@@ -32,6 +31,8 @@ const TYPE_PREFERENCES = {
   wishlist: "wishlistOffers",
   back_in_stock: "backInStockAlerts",
 };
+
+// Android notification channels.
 const ANDROID_CHANNELS = {
   promotion: "offers",
   price_drop: "offers",
@@ -52,7 +53,35 @@ const ANDROID_CHANNELS = {
   system: "general",
   wishlist: "general",
 };
+
 const cleanText = (value) => String(value ?? "").trim();
+
+/**
+ * FCM notification images must be publicly accessible HTTPS URLs.
+ */
+const getValidImageUrl = (imageUrl) => {
+  if (typeof imageUrl !== "string") {
+    return "";
+  }
+
+  const value = imageUrl.trim();
+
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+
+    if (parsedUrl.protocol !== "https:") {
+      return "";
+    }
+
+    return value;
+  } catch {
+    return "";
+  }
+};
 
 const isMarketingNotification = (type, explicitValue) =>
   Boolean(explicitValue) || MARKETING_TYPES.has(type);
@@ -60,12 +89,11 @@ const isMarketingNotification = (type, explicitValue) =>
 const isPreferenceDisabled = (user, type, isPromotional) => {
   const settings = user.notificationSettings || {};
 
-  if (settings.push === false) return true;
+  if (settings.push === false) {
+    return true;
+  }
 
-  if (
-    isPromotional &&
-    settings.promotionalPush === false
-  ) {
+  if (isPromotional && settings.promotionalPush === false) {
     return true;
   }
 
@@ -79,7 +107,9 @@ const isPreferenceDisabled = (user, type, isPromotional) => {
 };
 
 const getActiveUser = async (userId) => {
-  if (!userId) return null;
+  if (!userId) {
+    return null;
+  }
 
   return User.findById(userId).select(
     "notificationSettings isBlocked isDeleted"
@@ -89,6 +119,9 @@ const getActiveUser = async (userId) => {
 const isEligibleUser = (user) =>
   Boolean(user && !user.isBlocked && !user.isDeleted);
 
+/**
+ * Save an in-app notification, including its optional image URL.
+ */
 const createNotificationRecord = async ({
   userId,
   type,
@@ -98,7 +131,8 @@ const createNotificationRecord = async ({
   productId = null,
   couponId = null,
   link = "",
-  isPromotional,
+  imageUrl = "",
+  isPromotional = false,
   createdBy = null,
 }) => {
   return Notification.create({
@@ -110,6 +144,7 @@ const createNotificationRecord = async ({
     productId,
     couponId,
     link: cleanText(link),
+    imageUrl: getValidImageUrl(imageUrl),
     isPromotional,
     createdBy,
   });
@@ -127,6 +162,7 @@ export const createNotification = async ({
   productId = null,
   couponId = null,
   link = "",
+  imageUrl = "",
   isPromotional = false,
   createdBy = null,
 }) => {
@@ -154,13 +190,14 @@ export const createNotification = async ({
     productId,
     couponId,
     link,
+    imageUrl,
     isPromotional: promotional,
     createdBy,
   });
 };
 
 /**
- * Send native Android push through Firebase Cloud Messaging.
+ * Send a native Android push notification using Firebase Cloud Messaging.
  */
 export const sendPushNotification = async ({
   userId,
@@ -173,7 +210,6 @@ export const sendPushNotification = async ({
   link = "",
   isPromotional = false,
   imageUrl = "",
-
 }) => {
   if (!userId || !cleanText(title) || !cleanText(message)) {
     throw new Error("userId, title and message are required");
@@ -182,13 +218,21 @@ export const sendPushNotification = async ({
   const user = await getActiveUser(userId);
 
   if (!isEligibleUser(user)) {
-    return { sent: 0, failed: 0, skipped: true };
+    return {
+      sent: 0,
+      failed: 0,
+      skipped: true,
+    };
   }
 
   const promotional = isMarketingNotification(type, isPromotional);
 
   if (isPreferenceDisabled(user, type, promotional)) {
-    return { sent: 0, failed: 0, skipped: true };
+    return {
+      sent: 0,
+      failed: 0,
+      skipped: true,
+    };
   }
 
   const devices = await DeviceToken.find({
@@ -197,11 +241,21 @@ export const sendPushNotification = async ({
   }).select("_id token");
 
   if (!devices.length) {
-    return { sent: 0, failed: 0, skipped: true };
+    return {
+      sent: 0,
+      failed: 0,
+      skipped: true,
+    };
   }
 
-  const results = { sent: 0, failed: 0 };
+  const validImageUrl = getValidImageUrl(imageUrl);
 
+  const results = {
+    sent: 0,
+    failed: 0,
+  };
+
+  // Firebase multicast messages support up to 500 registration tokens.
   for (let i = 0; i < devices.length; i += 500) {
     const batch = devices.slice(i, i + 500);
 
@@ -209,33 +263,36 @@ export const sendPushNotification = async ({
       const response =
         await firebaseMessaging.sendEachForMulticast({
           tokens: batch.map((device) => device.token),
-notification: {
-  title: cleanText(title),
-  body: cleanText(message),
-  ...(typeof imageUrl === "string" &&
-  /^https:\/\/\S+$/i.test(imageUrl.trim())
-    ? { imageUrl: imageUrl.trim() }
-    : {}),
-},
-        data: {
-  type: String(type),
-  orderId: orderId ? String(orderId) : "",
-  productId: productId ? String(productId) : "",
-  couponId: couponId ? String(couponId) : "",
-  link: cleanText(link),
-  isPromotional: String(promotional),
-  imageUrl:
-    typeof imageUrl === "string" &&
-    /^https:\/\/\S+$/i.test(imageUrl.trim())
-      ? imageUrl.trim()
-      : "",
-},
+
+          notification: {
+            title: cleanText(title),
+            body: cleanText(message),
+            ...(validImageUrl
+              ? { imageUrl: validImageUrl }
+              : {}),
+          },
+
+          data: {
+            type: String(type),
+            orderId: orderId ? String(orderId) : "",
+            productId: productId ? String(productId) : "",
+            couponId: couponId ? String(couponId) : "",
+            link: cleanText(link),
+            isPromotional: String(promotional),
+            imageUrl: validImageUrl,
+          },
 
           android: {
             priority: "high",
+
             notification: {
               channelId: ANDROID_CHANNELS[type] || "general",
               sound: "default",
+
+              // Android-specific image for supported FCM notifications.
+              ...(validImageUrl
+                ? { imageUrl: validImageUrl }
+                : {}),
             },
           },
         });
@@ -259,14 +316,18 @@ notification: {
         }
       });
 
-      if (invalidTokenIds.length) {
+      if (invalidTokenIds.length > 0) {
         await DeviceToken.deleteMany({
           _id: { $in: invalidTokenIds },
         });
       }
     } catch (error) {
       results.failed += batch.length;
-      console.error("FCM batch send failed:", error.message);
+
+      console.error(
+        "FCM batch send failed:",
+        error.message
+      );
     }
   }
 
@@ -279,8 +340,8 @@ notification: {
 };
 
 /**
- * Create the in-app notification and attempt push delivery.
- * Push failures do not remove the saved in-app notification.
+ * Save the in-app notification and attempt push delivery.
+ * A failed push does not delete the saved in-app notification.
  */
 export const createAndSendNotification = async (options) => {
   const {
@@ -321,6 +382,7 @@ export const createAndSendNotification = async (options) => {
       productId,
       couponId,
       link,
+      imageUrl,
       isPromotional: promotional,
       createdBy,
     });
@@ -340,7 +402,10 @@ export const createAndSendNotification = async (options) => {
       imageUrl,
     });
   } catch (error) {
-    console.error("Push notification failed:", error.message);
+    console.error(
+      "Push notification failed:",
+      error.message
+    );
   }
 
   return notification;
@@ -348,7 +413,7 @@ export const createAndSendNotification = async (options) => {
 
 /**
  * Backward-compatible helper for existing order notifications.
- * Keeps type "order" so existing frontend filters continue to work.
+ * Keeps type "order" for existing frontend filters.
  */
 export const createOrderNotification = async ({
   userId,

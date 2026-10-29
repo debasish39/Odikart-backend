@@ -73,7 +73,11 @@ const notificationSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
-
+imageUrl: {
+  type: String,
+  default: "",
+  trim: true,
+},
     isRead: {
       type: Boolean,
       default: false,

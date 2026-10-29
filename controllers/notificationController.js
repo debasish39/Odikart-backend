@@ -5,6 +5,8 @@ import mongoose from "mongoose";
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
 import DeviceToken from "../models/DeviceToken.js";
+import { Readable } from "node:stream";
+import cloudinary from "../config/cloudinary.js";
 import {
   createAndSendNotification,
   createNotification as createInAppNotification,
@@ -506,15 +508,16 @@ export const sendNotificationToUser =
         });
       }
 
-      const {
-        userId,
-        title,
-        message,
-        type = "announcement",
-        link = "",
-        orderId = null,
-        isPromotional = false,
-      } = req.body;
+const {
+  userId,
+  title,
+  message,
+  type = "announcement",
+  link = "",
+  orderId = null,
+  isPromotional = false,
+  imageUrl = "",
+} = req.body;
 
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -575,6 +578,7 @@ const notification = await createAndSendNotification({
   link,
   orderId,
   isPromotional,
+  imageUrl: String(imageUrl || "").trim(),
   createdBy: getUserId(req),
 });
 
@@ -905,7 +909,9 @@ const getNotificationPayload = (body = {}) => {
   if (typeof body.isPromotional === "boolean") {
     payload.isPromotional = body.isPromotional;
   }
-
+  if (typeof body.imageUrl === "string") {
+    payload.imageUrl = body.imageUrl.trim();
+  }
   return payload;
 };
 
@@ -1208,5 +1214,88 @@ export const deleteNotificationByAdmin = async (req, res) => {
   } catch (error) {
     notificationError("deleteNotificationByAdmin", error, req);
     return debugErrorResponse(res, error, "Failed to delete notification", 500);
+  }
+};
+export const uploadNotificationImage = async (req, res) => {
+  try {
+    if (!isAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access only",
+      });
+    }
+
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select an image to upload",
+      });
+    }
+
+    // Verify actual image contents instead of trusting the MIME type alone.
+    const buffer = req.file.buffer;
+
+    const isJpeg =
+      buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff;
+
+    const isPng =
+      buffer.length >= 8 &&
+      buffer.subarray(0, 8).equals(
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+      );
+
+    const isWebp =
+      buffer.length >= 12 &&
+      buffer.toString("ascii", 0, 4) === "RIFF" &&
+      buffer.toString("ascii", 8, 12) === "WEBP";
+
+    if (!isJpeg && !isPng && !isWebp) {
+      return res.status(400).json({
+        success: false,
+        message: "The selected file is not a supported image",
+      });
+    }
+
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: "odikart/notifications",
+          resource_type: "image",
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else if (!result?.secure_url) {
+            reject(new Error("Cloudinary did not return an image URL"));
+          } else {
+            resolve(result);
+          }
+        }
+      );
+
+      Readable.from([buffer]).pipe(stream);
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Notification image uploaded successfully",
+      imageUrl: uploadResult.secure_url,
+      image: {
+        publicId: uploadResult.public_id,
+        width: uploadResult.width,
+        height: uploadResult.height,
+        format: uploadResult.format,
+      },
+    });
+  } catch (error) {
+    console.error("Notification Image Upload Error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload notification image",
+    });
   }
 };
