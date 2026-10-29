@@ -1,4 +1,5 @@
 
+
 import mongoose from "mongoose";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
@@ -4082,108 +4083,124 @@ export const updateProfile =
       if (!user) {
         return res.status(401).json({
           success: false,
-          message:
-            "Authentication required",
+          message: "Authentication required",
         });
       }
 
-      if (
-        user.isDeleted ||
-        user.isBlocked
-      ) {
+      if (user.isDeleted || user.isBlocked) {
         return res.status(403).json({
           success: false,
-          message:
-            "This account is not available",
+          message: "This account is not available",
         });
       }
 
-      const firstName =
-        normalizeString(
+      // Only update fields that were actually submitted.
+      // Phone is deliberately immutable in this endpoint.
+      const firstNameProvided =
+        Object.prototype.hasOwnProperty.call(req.body || {}, "firstName");
+      const lastNameProvided =
+        Object.prototype.hasOwnProperty.call(req.body || {}, "lastName");
+      const emailProvided =
+        Object.prototype.hasOwnProperty.call(req.body || {}, "email");
+
+      if (firstNameProvided) {
+        const firstName = normalizeString(
           req.body?.firstName,
           MAX_NAME_LENGTH
         );
 
-      const lastName =
-        normalizeString(
+        if (!firstName || firstName.length < 2) {
+          return res.status(400).json({
+            success: false,
+            message: "First name must contain at least 2 characters",
+          });
+        }
+
+        user.firstName = firstName;
+      }
+
+      if (lastNameProvided) {
+        const lastName = normalizeString(
           req.body?.lastName,
           MAX_NAME_LENGTH
         );
 
-      const phone =
-        normalizeString(
-          req.body?.phone,
-          MAX_PHONE_LENGTH
-        );
-
-      if (
-        firstName
-      ) {
-        user.firstName =
-          firstName;
-      }
-
-      if (
-        lastName
-      ) {
-        user.lastName =
-          lastName;
-      }
-
-      if (
-        phone
-      ) {
-        if (
-          !/^[0-9+\-\s()]{7,20}$/.test(
-            phone
-          )
-        ) {
+        if (!lastName) {
           return res.status(400).json({
             success: false,
-            message:
-              "Invalid phone number",
+            message: "Last name is required",
           });
         }
 
-        user.phone =
-          phone;
+        user.lastName = lastName;
+      }
+
+      if (emailProvided) {
+        const email = normalizeEmail(req.body?.email);
+
+        // Do not silently clear an existing email.
+        if (!email) {
+          return res.status(400).json({
+            success: false,
+            message: "Email address is required",
+          });
+        }
+
+        if (!isValidEmail(email)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid email address",
+          });
+        }
+
+        const emailChanged =
+          email !== normalizeEmail(user.email || "");
+
+        if (emailChanged) {
+          const existingUser = await User.findOne({
+            email,
+            _id: { $ne: user._id },
+            isDeleted: { $ne: true },
+          }).select("_id");
+
+          if (existingUser) {
+            return res.status(409).json({
+              success: false,
+              message: "This email address is already associated with another account.",
+            });
+          }
+
+          user.email = email;
+
+          // A changed email must be verified separately.
+          user.isEmailVerified = false;
+        }
       }
 
       /*
-        Email, role, sellerStatus, verification,
-        adminInfo and password are intentionally NOT
-        accepted here.
-      */
+       * Phone is intentionally not read from req.body and never changed here.
+       * Email, role, sellerStatus, adminInfo and password are not client-controlled.
+       */
 
-      if (
-        req.file
-      ) {
+      if (req.file) {
         /*
-          upload middleware must validate:
-          - MIME type
-          - file extension
-          - file size
-          - image content
-
-          The controller only accepts the resulting
-          server-generated upload path.
-        */
-        user.image =
-          req.file.path;
+         * The upload middleware must validate MIME type, extension, size,
+         * and image content. The controller accepts only its server-generated
+         * upload path.
+         */
+        user.image = req.file.path;
       }
 
       await user.save();
 
+      // Re-read the saved document so the response reflects persisted values.
+      const savedUser = await User.findById(user._id);
+
       return res.status(200).json({
         success: true,
-        message:
-          "Profile updated successfully",
-        user:
-          safeAuthResponse(
-            user
-          ),
+        message: "Profile updated successfully",
+        user: safeAuthResponse(savedUser || user),
       });
-
     } catch (error) {
       return unexpectedError(
         res,
@@ -4192,6 +4209,7 @@ export const updateProfile =
       );
     }
   };
+
 
 /* =========================================================
    DELETE MY ACCOUNT
