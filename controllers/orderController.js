@@ -1,4 +1,5 @@
 
+
 import mongoose from "mongoose";
 import crypto from "crypto";
 
@@ -1643,138 +1644,305 @@ export const cancelOrder = async (req, res) => {
 
     /* =====================================================
        RAZORPAY REFUND
+       - Check Razorpay before creating a refund.
+       - Never create a duplicate for a payment already refunded.
+       - Continue cancellation when an existing refund is found.
     ===================================================== */
 
     let refundCreated = false;
+    let refundHandled = false;
+    let refundStatus = "Not Required";
+    let refundAmountRupees = 0;
 
     const paymentMethod = String(order.payment?.method || "")
       .trim()
       .toLowerCase();
 
-    if (
-      paymentMethod === "razorpay" &&
-      order.payment?.status === "Paid" &&
-      order.payment?.gateway?.paymentId
-    ) {
-      const refundAmount = Math.round(Number(order.pricing?.total || 0) * 100);
+    const razorpayPaymentId = String(
+      order.payment?.gateway?.paymentId || "",
+    ).trim();
 
-      if (!Number.isInteger(refundAmount) || refundAmount <= 0) {
-        return res.status(400).json({
+    if (paymentMethod === "razorpay" && razorpayPaymentId) {
+      if (
+        !razorpay?.payments?.fetch ||
+        !razorpay?.payments?.fetchMultipleRefund ||
+        !razorpay?.payments?.refund
+      ) {
+        return res.status(500).json({
           success: false,
-
-          message: "Invalid refund amount",
+          message: "Razorpay is not configured correctly",
         });
       }
 
       try {
-        const refund = await razorpay.payments.refund(
-          order.payment.gateway.paymentId,
-          {
-            amount: refundAmount,
-          },
+        console.log("\\n========== ODikart REFUND DEBUG ==========");
+        console.log("Order ID:", order._id.toString());
+        console.log("Order Number:", order.orderNumber);
+        console.log("Razorpay Payment ID:", razorpayPaymentId);
+
+        // Fetch the authoritative payment state from Razorpay.
+        const payment = await razorpay.payments.fetch(razorpayPaymentId);
+        const paymentAmountPaise = Number(payment?.amount || 0);
+        const amountRefundedPaise = Number(payment?.amount_refunded || 0);
+        const orderAmountPaise = Math.round(
+          Number(order.pricing?.total || 0) * 100,
         );
 
-        order.payment.status = "Refunded";
-
-        if (!order.refund) {
-          order.refund = {};
+        if (
+          !Number.isFinite(paymentAmountPaise) ||
+          paymentAmountPaise <= 0 ||
+          !Number.isFinite(amountRefundedPaise) ||
+          !Number.isFinite(orderAmountPaise) ||
+          orderAmountPaise <= 0
+        ) {
+          throw new Error("Razorpay returned an invalid payment/refund amount");
         }
 
-        order.refund.refundId = refund.id;
+        console.log("Payment status:", payment.status);
+        console.log("Payment amount (paise):", paymentAmountPaise);
+        console.log("Amount refunded (paise):", amountRefundedPaise);
+        console.log("Order amount (paise):", orderAmountPaise);
 
-        order.refund.status = "Completed";
+        if (payment.status !== "captured" && payment.status !== "refunded") {
+          return res.status(400).json({
+            success: false,
+            refundFailed: true,
+            message: `Payment is not captured. Current Razorpay status: ${payment.status}`,
+          });
+        }
 
-        order.refund.amount = Number(order.pricing?.total || 0);
+        // List existing refunds to detect pending and processed refunds.
+        const refundResponse =
+          await razorpay.payments.fetchMultipleRefund(razorpayPaymentId, {
+            count: 100,
+          });
 
-        order.refund.refundedAt = new Date();
+        const existingRefunds = Array.isArray(refundResponse?.items)
+          ? refundResponse.items
+          : [];
 
-        refundCreated = true;
+        const pendingRefunds = existingRefunds.filter(
+          (item) => item?.status === "pending",
+        );
+
+        const processedRefunds = existingRefunds.filter(
+          (item) => item?.status === "processed",
+        );
+
+        const latestProcessedRefund =
+          processedRefunds.length > 0
+            ? [...processedRefunds].sort(
+                (a, b) =>
+                  Number(b.created_at || 0) - Number(a.created_at || 0),
+              )[0]
+            : null;
+
+        const latestPendingRefund =
+          pendingRefunds.length > 0
+            ? [...pendingRefunds].sort(
+                (a, b) =>
+                  Number(b.created_at || 0) - Number(a.created_at || 0),
+              )[0]
+            : null;
+
+        if (!order.payment) order.payment = {};
+        if (!order.refund) order.refund = {};
+
+        // Razorpay's amount_refunded is in paise and reflects processed refunds.
+        const remainingOrderAmountPaise = Math.max(
+          0,
+          orderAmountPaise - amountRefundedPaise,
+        );
+
+        if (latestPendingRefund) {
+          refundHandled = true;
+          refundStatus = "Processing";
+          refundAmountRupees =
+            Number(latestPendingRefund.amount || 0) / 100;
+
+          order.refund.refundId =
+            latestPendingRefund.id || order.refund.refundId || "";
+          order.refund.status = "Processing";
+          order.refund.amount =
+            refundAmountRupees || Number(order.refund.amount || 0);
+
+          console.log(
+            "REFUND DEBUG: A pending refund already exists. No duplicate refund created.",
+            latestPendingRefund.id,
+          );
+        } else if (
+          amountRefundedPaise >= orderAmountPaise ||
+          (payment.status === "refunded" &&
+            amountRefundedPaise >= paymentAmountPaise)
+        ) {
+          refundHandled = true;
+          refundStatus = "Completed";
+          refundAmountRupees = orderAmountPaise / 100;
+
+          order.payment.status = "Refunded";
+          order.refund.refundId =
+            latestProcessedRefund?.id || order.refund.refundId || "";
+          order.refund.status = "Completed";
+          order.refund.amount = refundAmountRupees;
+          order.refund.refundedAt = latestProcessedRefund?.created_at
+            ? new Date(Number(latestProcessedRefund.created_at) * 1000)
+            : order.refund.refundedAt || new Date();
+
+          console.log(
+            "REFUND DEBUG: Already fully refunded. No new refund.",
+          );
+        } else {
+          if (payment.status !== "captured") {
+            return res.status(400).json({
+              success: false,
+              refundFailed: true,
+              message: "Only a captured payment can be refunded.",
+            });
+          }
+
+          if (remainingOrderAmountPaise <= 0) {
+            refundHandled = true;
+            refundStatus = "Completed";
+            refundAmountRupees = orderAmountPaise / 100;
+            order.payment.status = "Refunded";
+            order.refund.status = "Completed";
+            order.refund.amount = refundAmountRupees;
+          } else {
+            // Never refund more than the amount actually captured.
+            const refundableAmountPaise = Math.min(
+              remainingOrderAmountPaise,
+              Math.max(0, paymentAmountPaise - amountRefundedPaise),
+            );
+
+            if (refundableAmountPaise <= 0) {
+              throw new Error(
+                "No refundable balance is available for this payment",
+              );
+            }
+
+            const refund = await razorpay.payments.refund(
+              razorpayPaymentId,
+              {
+                amount: refundableAmountPaise,
+              },
+            );
+
+            refundCreated = true;
+            refundHandled = true;
+            refundAmountRupees = refundableAmountPaise / 100;
+
+            const isProcessed = refund?.status === "processed";
+            refundStatus = isProcessed ? "Completed" : "Processing";
+
+            order.refund.refundId = refund?.id || "";
+            order.refund.status = isProcessed ? "Completed" : "Processing";
+            order.refund.amount = refundAmountRupees;
+
+            if (isProcessed) {
+              order.payment.status = "Refunded";
+              order.refund.refundedAt = new Date();
+            }
+
+            console.log("REFUND DEBUG: Refund API response:", {
+              id: refund?.id,
+              status: refund?.status,
+              amount: refund?.amount,
+            });
+          }
+        }
+
+        console.log("Refund handled:", refundHandled);
+        console.log("Refund status:", refundStatus);
+        console.log("Refund amount (INR):", refundAmountRupees);
+        console.log("==========================================\\n");
       } catch (refundError) {
+        console.error("ODikart RAZORPAY REFUND ERROR:", {
+          message: refundError?.message,
+          description:
+            refundError?.error?.description ||
+            refundError?.description ||
+            null,
+          paymentId: razorpayPaymentId,
+          orderId: order._id.toString(),
+        });
+
         const description =
           refundError?.error?.description ||
           refundError?.description ||
           refundError?.message ||
-          "Razorpay refund failed";
+          "Razorpay refund status could not be verified";
 
         return res.status(400).json({
           success: false,
-
           refundFailed: true,
-
-          message: `Refund could not be processed: ${description}`,
+          message: `Refund could not be verified or processed: ${description}`,
         });
       }
     }
 
     /* =====================================================
        STOCK RESTORATION
+       Do not add stock twice if it was already restored.
     ===================================================== */
 
-    if (order.stock?.restored === true) {
-      return res.status(400).json({
-        success: false,
-
-        message: "Order stock has already been restored",
-      });
-    }
-
+    const stockAlreadyRestored = order.stock?.restored === true;
     const restoredItems = [];
 
-    try {
-      for (const item of order.items) {
-        const quantity = Number(item.quantity || 0);
+    console.log("STOCK RESTORATION DEBUG:", {
+      stockAlreadyRestored,
+      orderId: order._id.toString(),
+    });
 
-        if (!item.productId || quantity <= 0) {
-          continue;
-        }
+    if (!stockAlreadyRestored) {
+      try {
+        for (const item of order.items || []) {
+          const quantity = Number(item.quantity || 0);
 
-        const result = await Product.updateOne(
-          {
-            _id: item.productId,
+          if (!item.productId || quantity <= 0) {
+            continue;
+          }
 
-            "variants.sku": item.variantSku,
-          },
-
-          {
-            $inc: {
-              "variants.$.stock": quantity,
-
-              "variants.$.sold": -quantity,
+          const result = await Product.updateOne(
+            {
+              _id: item.productId,
+              "variants.sku": item.variantSku,
             },
-          },
-        );
-
-        if (result.matchedCount !== 1 || result.modifiedCount !== 1) {
-          throw new Error(
-            `Stock restoration failed for ${item.title} (${item.variantSku})`,
+            {
+              $inc: {
+                "variants.$.stock": quantity,
+                "variants.$.sold": -quantity,
+              },
+            },
           );
+
+          if (result.matchedCount !== 1 || result.modifiedCount !== 1) {
+            throw new Error(
+              `Stock restoration failed for ${item.title} (${item.variantSku})`,
+            );
+          }
+
+          restoredItems.push({
+            productId: item.productId,
+            variantSku: item.variantSku,
+            quantity,
+          });
         }
+      } catch (stockError) {
+        console.error("ORDER STOCK RESTORATION ERROR:", stockError);
 
-        restoredItems.push({
-          productId: item.productId,
-
-          variantSku: item.variantSku,
-
-          quantity,
+        return res.status(500).json({
+          success: false,
+          refundHandled,
+          refundHandled,
+          stockRestorationFailed: true,
+          message:
+            "Payment refund was handled, but stock restoration failed. Please contact support immediately.",
         });
       }
-    } catch (stockError) {
-      /*
-        IMPORTANT:
-        If refund has already happened but stock restoration
-        fails, do NOT pretend the entire operation succeeded.
-      */
-
-      return res.status(500).json({
-        success: false,
-
-        refundCreated,
-
-        stockRestorationFailed: true,
-
-        message:
-          "Payment refund was processed, but stock restoration failed. Please contact support immediately.",
-      });
+    } else {
+      console.log(
+        "STOCK RESTORATION: Already restored. Skipping duplicate inventory update.",
+      );
     }
 
     /* =====================================================
@@ -1945,7 +2113,7 @@ ${order.payment.method}
 </div>
 
 ${
-  refundCreated
+  refundHandled
     ? `
 <div style="
 background:#ecfdf5;
@@ -1955,8 +2123,8 @@ border-radius:10px;
 color:#065f46;
 ">
 
-💰 Refund of ₹${order.pricing.total}
-has been initiated.
+💰 Refund of ₹${money(refundAmountRupees || order.refund?.amount || order.pricing.total)}
+has been ${refundStatus === "Completed" ? "processed" : "initiated"}.
 
 <br>
 
@@ -2095,74 +2263,6 @@ border-radius:8px;
         sellerUsers
           .filter((seller) => seller.email)
           .map(async (seller) => {
-            if (role === "seller") {
-
-  console.log("\n========== SELLER ORDER DEBUG ==========");
-
-  console.log("Seller ID:", userId);
-
-  console.log(
-    "Total order items:",
-    order.items?.length
-  );
-
-  console.log(
-    "Order items:",
-    order.items?.map((item) => ({
-      productId: item.productId?._id?.toString?.() ||
-                 item.productId?.toString?.(),
-
-      sellerId: item.sellerId?.toString?.(),
-
-      title: item.title,
-
-      quantity: item.quantity,
-    }))
-  );
-
-  console.log("========================================");
-
-  const sellerItems = order.items.filter(
-    (item) =>
-      item.sellerId?.toString() === userId
-  );
-
-  console.log(
-    "Seller Items Found:",
-    sellerItems.length
-  );
-
-  if (sellerItems.length === 0) {
-
-    console.log("❌ NO SELLER ITEMS MATCHED");
-
-    return res.status(403).json({
-      success: false,
-      message: "Access denied",
-    });
-  }
-
-  const sellerTotal = sellerItems.reduce(
-    (total, item) =>
-      total +
-      Number(item.price || 0) *
-      Number(item.quantity || 0),
-    0
-  );
-
-  const sellerOrder = {
-    ...order.toObject(),
-    items: sellerItems,
-    sellerTotal: money(sellerTotal),
-  };
-
-  console.log("✅ SELLER ACCESS GRANTED");
-
-  return res.status(200).json({
-    success: true,
-    order: sellerOrder,
-  });
-}
             const sellerItems = order.items.filter(
               (item) => getSellerIdFromItem(item) === seller._id.toString(),
             );
@@ -2364,8 +2464,8 @@ A customer has cancelled an order. Please review the cancellation in the admin d
 <b>💰 Refund Information</b>
 <p style="margin-bottom:0;">
 ${
-  refundCreated
-    ? `Refund of ₹${orderTotal} has been initiated. Expected refund time: 5–7 business days.`
+  refundHandled
+    ? `Refund of ₹${money(refundAmountRupees || order.refund?.amount || orderTotal)} is ${refundStatus === "Completed" ? "processed" : "being processed"}. ${refundStatus === "Completed" ? "" : "Expected refund time: 5–7 business days."}`
     : `No online payment refund was required for this order.`
 }
 </p>
@@ -2490,14 +2590,13 @@ Subtotal: ₹${item.total}`,
 ━━━━━━━━━━━━━━━━━━━
 
 ${
-  refundCreated
-    ? `✅ Refund initiated.
+  refundHandled
+    ? `✅ Refund ${refundStatus === "Completed" ? "processed" : "initiated"}.
 
 Refund Amount:
-₹${order.pricing.total}
+₹${money(refundAmountRupees || order.refund?.amount || order.pricing.total)}
 
-Expected:
-5–7 business days.`
+${refundStatus === "Completed" ? "The refund has been processed by Razorpay." : "Expected: 5–7 business days."}`
     : `ℹ️ No online payment refund required.`
 }
 
@@ -2523,7 +2622,7 @@ ${TRACK_ORDER_URL}
     return res.status(200).json({
       success: true,
 
-      message: "Order cancelled successfully & stock restored",
+      message: "Order cancelled successfully",
 
       order,
 
@@ -2536,13 +2635,17 @@ ${TRACK_ORDER_URL}
 
       refund: {
         created: refundCreated,
-        amount: refundCreated ? money(order.pricing?.total || 0) : 0,
-        status: refundCreated ? "Completed" : "Not Required",
+        handled: refundHandled,
+        amount: refundHandled
+          ? money(refundAmountRupees || order.refund?.amount || order.pricing?.total || 0)
+          : 0,
+        status: refundStatus,
+        refundId: order.refund?.refundId || null,
       },
 
       stock: {
         restored: true,
-        restoredItems: order.items?.length || 0,
+        restoredItems: stockAlreadyRestored ? 0 : restoredItems.length,
       },
     });
   } catch (error) {
