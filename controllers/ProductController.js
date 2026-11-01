@@ -1,6 +1,5 @@
 
 
-
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import slugify from "slugify";
@@ -3769,47 +3768,6 @@ export const getProducts = async (req, res) => {
         $unwind: {
           path: "$subCategoryData",
           preserveNullAndEmptyArrays: true,
-        },
-      },
-
-      /* ================================
-         EXPOSE CATEGORY NAMES
-
-         Keep the original IDs in categoryId and
-         subCategoryId, while returning category and
-         subCategory as objects. This prevents the
-         customer app from displaying ObjectIds where
-         category names are expected.
-      ================================= */
-      {
-        $addFields: {
-          categoryId: "$category",
-          subCategoryId: "$subCategory",
-
-          category: {
-            $cond: [
-              { $ne: ["$categoryData", null] },
-              {
-                _id: "$categoryData._id",
-                name: "$categoryData.name",
-                slug: "$categoryData.slug",
-                image: "$categoryData.image",
-              },
-              "$category",
-            ],
-          },
-
-          subCategory: {
-            $cond: [
-              { $ne: ["$subCategoryData", null] },
-              {
-                _id: "$subCategoryData._id",
-                name: "$subCategoryData.name",
-                slug: "$subCategoryData.slug",
-              },
-              "$subCategory",
-            ],
-          },
         },
       },
     ];
