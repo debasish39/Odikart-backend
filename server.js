@@ -2,9 +2,10 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-
+import "dotenv/config";
 import connectDB from "./config/db.js";
-
+import aiRoutes from "./routes/aiRoutes.js";
+import bannerRoutes from "./routes/bannerRoutes.js";
 /* =====================================
    ROUTES
 ===================================== */
@@ -193,8 +194,20 @@ app.use(
   "/api/cart",
   cartRoutes
 );
+app.use("/api/ai", aiRoutes);
+console.log("========== GEMINI CONFIG ==========");
 
+console.log(
+  "Gemini API Key Loaded:",
+  Boolean(process.env.GEMINI_API_KEY?.trim())
+);
 
+console.log(
+  "Gemini Model:",
+  process.env.GEMINI_MODEL || "NOT CONFIGURED"
+);
+
+console.log("===================================");
 /* =====================================================
    CATEGORY
 ===================================================== */
@@ -204,7 +217,11 @@ app.use(
   categoryRoutes
 );
 
+/* =====================================================
+   BANNERS
+===================================================== */
 
+app.use("/api/banners", bannerRoutes);
 /* =====================================================
    BRAND
 ===================================================== */

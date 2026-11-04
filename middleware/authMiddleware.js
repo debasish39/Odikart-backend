@@ -165,3 +165,21 @@ console.log("JWT_SECRET LENGTH:", process.env.JWT_SECRET);
 
 export default authMiddleware;
 
+/* =====================================
+   ADMIN AUTH MIDDLEWARE
+===================================== */
+
+export const protectAdmin = async (req, res, next) => {
+  return authMiddleware(req, res, () => {
+
+    // Assumption: your User model has role: "admin"
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access denied",
+      });
+    }
+
+    next();
+  });
+};
