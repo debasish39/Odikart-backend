@@ -316,9 +316,10 @@ const activeDateFilter = (now = new Date()) => ({
 // GET /api/banners?placement=home_main
 // --------------------------------------------------
 
+
 export const getPublicBanners = async (req, res, next) => {
   try {
-    const { placement } = req.query;
+    const { placement, categoryId } = req.query;
 
     if (
       placement &&
@@ -330,6 +331,15 @@ export const getPublicBanners = async (req, res, next) => {
       });
     }
 
+    // Validate category ID
+    if (categoryId && !isValidObjectId(categoryId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category ID",
+      });
+    }
+
+    // Build filter first
     const filter = {
       isActive: true,
       ...activeDateFilter(),
@@ -339,41 +349,49 @@ export const getPublicBanners = async (req, res, next) => {
       filter.placement = placement;
     }
 
+    // Category-wise filtering
+    if (categoryId) {
+      filter.categoryId = categoryId;
+    }
+
     const banners = await Banner.find(filter)
       .select("-__v")
       .populate({
-  path: "products",
-  select: `
-    title
-    slug
-    shortDescription
-    description
-    category
-    brand
-    productType
-    variants
-    media
-    rating
-    numReviews
-    status
-    isActive
-    isDeleted
-    offer
-  `,
-  match: {
-    status: "approved",
-    isActive: true,
-    isDeleted: false,
-  },
-}).sort({
+        path: "products",
+        select: `
+          title
+          slug
+          shortDescription
+          description
+          category
+          brand
+          productType
+          variants
+          media
+          rating
+          numReviews
+          status
+          isActive
+          isDeleted
+          offer
+        `,
+        match: {
+          status: "approved",
+          isActive: true,
+          isDeleted: false,
+        },
+      })
+      .sort({
         priority: -1,
         createdAt: -1,
       })
       .lean();
-const cleanBanners = banners.map((banner) => ({
-  ...banner,
-  products: (banner.products || []).filter(Boolean),
-}));
+
+    const cleanBanners = banners.map((banner) => ({
+      ...banner,
+      products: (banner.products || []).filter(Boolean),
+    }));
+
     return res.status(200).json({
       success: true,
       count: cleanBanners.length,
@@ -383,6 +401,7 @@ const cleanBanners = banners.map((banner) => ({
     next(error);
   }
 };
+
 
 // --------------------------------------------------
 // ADMIN: GET ALL BANNERS
@@ -447,7 +466,15 @@ export const createBanner = async (req, res, next) => {
 
   try {
     validateBannerInput(req.body);
-
+    if (
+  req.body.categoryId &&
+  !isValidObjectId(req.body.categoryId)
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid category ID",
+  });
+}
     // Validate selected products before uploading images
     const productIds = await parseProductIds(
       req.body.products
@@ -477,7 +504,7 @@ export const createBanner = async (req, res, next) => {
 
     const banner = await Banner.create({
       title: String(req.body.title || "").trim(),
-
+      categoryId: req.body.categoryId || null,
       subtitle: String(
         req.body.subtitle || ""
       ).trim(),
@@ -578,7 +605,15 @@ export const updateBanner = async (req, res, next) => {
     }
 
     validateBannerInput(req.body);
-
+if (
+  req.body.categoryId &&
+  !isValidObjectId(req.body.categoryId)
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid category ID",
+  });
+}
     const banner = await Banner.findById(
       req.params.id
     );
@@ -637,7 +672,19 @@ export const updateBanner = async (req, res, next) => {
             : req.body[field];
       }
     }
+if (req.body.categoryId !== undefined) {
+  if (
+    req.body.categoryId &&
+    !isValidObjectId(req.body.categoryId)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid category ID",
+    });
+  }
 
+  banner.categoryId = req.body.categoryId || null;
+}
     if (req.body.priority !== undefined) {
       banner.priority = Number(req.body.priority);
     }

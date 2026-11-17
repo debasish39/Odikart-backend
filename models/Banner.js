@@ -46,13 +46,19 @@ const bannerSchema = new mongoose.Schema(
       maxlength: 40,
     },
 
-    placement: {
-      type: String,
-      enum: ["home_main", "daily_deals", "category", "popup"],
-      default: "home_main",
-      index: true,
-    },
+   placement: {
+  type: String,
+  enum: ["home_main", "daily_deals", "category", "popup"],
+  default: "home_main",
+  index: true,
+},
 
+categoryId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Category",
+  default: null,
+  index: true,
+},
     redirectType: {
       type: String,
       enum: ["none", "category", "product", "collection", "url"],
