@@ -78,6 +78,12 @@ imageUrl: {
   default: "",
   trim: true,
 },
+textColor: {
+  type: String,
+  default: "#1E293B",
+  trim: true,
+  match: /^#([0-9A-Fa-f]{6})$/,
+},
     isRead: {
       type: Boolean,
       default: false,
